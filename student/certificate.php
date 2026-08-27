@@ -281,8 +281,9 @@ $pageActive = $is_admin ? 'students' : 'certificate';
             break-inside:avoid;page-break-inside:avoid;
         }
         .cert-border{
-            border:0;border-radius:0;outline:0;overflow:visible;
+            border:0.6mm solid #c9a24b;border-radius:0;outline:0;overflow:visible;
             background:#faf8f1;
+            -webkit-print-color-adjust:exact;print-color-adjust:exact;
             padding:8mm 12mm;
             min-height:250mm;height:auto;
         }

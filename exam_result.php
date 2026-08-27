@@ -78,6 +78,7 @@ while ($row = $res->fetch_assoc()) $answers[] = $row;
     table.result-table th{background:var(--surface-muted);}
     .result-signatures{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-top:30px;}
     .result-signature{text-align:center;flex:1;}
+    .result-sig-img{max-width:150px;max-height:60px;object-fit:contain;display:block;margin:0 auto 6px;}
     .sig-line{width:180px;max-width:100%;border-bottom:2px solid var(--text);margin:0 auto 8px;}
     .result-signature span{font-size:.82rem;color:var(--text-muted);}
     .no-print{max-width:820px;margin:0 auto 18px;display:flex;gap:10px;flex-wrap:wrap;}
@@ -86,9 +87,30 @@ while ($row = $res->fetch_assoc()) $answers[] = $row;
         .sidebar,.topbar,.footer,.no-print{display:none !important;}
         .main-area{margin:0 !important;}
         .main-content{padding:0 !important;}
-        .result-sheet{box-shadow:none;margin:0;max-width:100%;zoom:0.92;break-inside:avoid;page-break-inside:avoid;}
-        .result-border{padding:28px 30px;}
-        @page{size:A4 portrait;margin:10mm;}
+        @page{size:A4 portrait;margin:8mm;}
+        .result-sheet{
+            box-shadow:none;margin:0;max-width:100%;padding:0;
+            break-inside:avoid;page-break-inside:avoid;
+            -webkit-print-color-adjust:exact;print-color-adjust:exact;
+        }
+        .result-border{
+            display:flex;flex-direction:column;
+            border:3px double var(--gold);
+            -webkit-print-color-adjust:exact;print-color-adjust:exact;
+            padding:6mm 8mm;
+        }
+        .result-header{padding-bottom:6px;margin-bottom:8px;}
+        .result-header h1{font-size:1.05rem;}
+        .result-header p{font-size:.75rem;}
+        .result-title{font-size:1.15rem;margin:2px 0 0;}
+        .result-name{font-size:1.25rem;margin:4px 0 0;}
+        .result-email{margin:0 0 4px;}
+        .result-overall{padding:7px 10px;margin:0 0 8px;gap:14px;}
+        .result-overall .num{font-size:1.2rem;}
+        table.result-table{font-size:.72rem;margin-bottom:8px;}
+        table.result-table th,table.result-table td{padding:3px 6px;}
+        .result-sig-img{max-width:110px;max-height:44px;}
+        .result-signatures{margin-top:auto;padding-top:10px;}
     }
 </style>
 </head>
@@ -166,10 +188,12 @@ while ($row = $res->fetch_assoc()) $answers[] = $row;
 
             <div class="result-signatures">
                 <div class="result-signature">
+                    <img class="result-sig-img" src="/signature/file_000000003dd881f481e869e1a9a29a78.png" alt="Signature">
                     <div class="sig-line"></div>
                     <span>Academy Administrator</span>
                 </div>
                 <div class="result-signature">
+                    <img class="result-sig-img" src="/signature/file_000000003dd881f481e869e1a9a29a78.png" alt="Signature">
                     <div class="sig-line"></div>
                     <span>Head of Studies</span>
                 </div>

@@ -245,15 +245,6 @@ if ($selected_ready && $participants && $participants->num_rows > 0) {
             continues their normal lessons. Pick which of the 3 academy terms this exam covers — the term stays open
             until its end date (Term 1: Jan–Apr · Term 2: May–Aug · Term 3: Sep–Dec) or until you deactivate it.
         </p>
-    <?php endif; ?>
-
-    <?php if ($exam_mode): ?>
-        <form method="POST" onsubmit="return confirm('Deactivate exam mode now? Selected students who did not pass will be flagged as defaulters; unselected students are unaffected.');">
-            <?= csrf_field() ?>
-            <input type="hidden" name="action" value="deactivate">
-            <button class="btn btn-danger btn-lg"><?= ui_icon('close', 17) ?> Deactivate Exam Mode Now</button>
-        </form>
-    <?php else: ?>
         <form method="POST" onsubmit="return confirm('Activate exam mode for this term? Only the selected students will participate.');">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="activate">

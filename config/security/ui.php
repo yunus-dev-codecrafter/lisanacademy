@@ -103,6 +103,7 @@ if (!function_exists('ui_sidebar')) {
                 'holiday'      => ['holiday_settings.php', 'clock',   'Holiday'],
                 'announcements'=> ['announcements.php',    'bell',   'Announcements'],
                 'suggestions'  => ['suggestions.php',      'bulb',   'Suggestions'],
+                'survey'       => ['survey_key.php',       'lock',   'Survey Key'],
             ];
         } else {
             $brandSub = 'Student';
@@ -164,7 +165,22 @@ if (!function_exists('ui_topbar')) {
 
         $logoutUrl = '/auth/logout.php';
 
-        return '
+        /* Survey-mode banner: shown only while an admin is impersonating a
+           student, so the mode is always obvious and easy to leave. */
+        $banner = '';
+        if (function_exists('is_impersonating') && is_impersonating()) {
+            $who = htmlspecialchars($_SESSION['name'] ?? 'Student');
+            $banner = '
+    <div class="impersonation-banner" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:8px 18px;background:linear-gradient(135deg,#b45309,#92400e);color:#fff;font-size:.85rem;box-shadow:0 2px 8px rgba(0,0,0,.15);">
+        <span class="imp-text" style="display:inline-flex;align-items:center;gap:8px;">' . ui_icon('eye', 16) . ' Survey mode — you are viewing the site as <strong style="margin-left:2px;">' . $who . '</strong></span>
+        <form method="POST" action="/admin/exit_impersonation.php" class="imp-form" style="margin:0;">
+            ' . (function_exists('csrf_field') ? csrf_field() : '') . '
+            <button class="btn btn-sm btn-ghost" type="submit" style="color:#fff;border-color:rgba(255,255,255,.6);">' . ui_icon('logout', 15) . ' Exit Survey</button>
+        </form>
+    </div>';
+        }
+
+        return $banner . '
 <header class="topbar">
     <button type="button" class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Open menu">' . ui_icon('menu', 22) . '</button>
     <div class="topbar-title">' . ($subtitle !== '' ? '<span class="crumb">' . htmlspecialchars($subtitle) . '</span>' : '') . htmlspecialchars($title) . '</div>

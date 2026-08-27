@@ -65,6 +65,7 @@ $students = $conn->query("
         <button class="btn btn-sm <?= $s['blocked'] ? 'btn-ghost' : 'btn-danger' ?>" onclick="blockStudent(<?= $s['id']?>, <?= $s['blocked'] ? 'true' : 'false' ?>)"><?= $s['blocked'] ? 'Unblock' : 'Block' ?></button>
         <button class="btn btn-sm <?= $s['suspended'] ? 'btn-ghost' : 'btn-danger' ?>" onclick="suspendStudent(<?= $s['id']?>, <?= $s['suspended'] ? 'true' : 'false' ?>)"><?= $s['suspended'] ? 'Unsuspend' : 'Suspend' ?></button>
         <button class="btn btn-sm btn-ghost" onclick="window.location.href='message_student.php?id=<?= (int)$s['id'] ?>'">Message</button>
+        <button class="btn btn-sm btn-gold" onclick="loginAs(<?= (int)$s['id'] ?>)">Login as</button>
     </div>
 </div>
 <?php endwhile; ?>
@@ -106,6 +107,9 @@ if (modalBody) {
         e.preventDefault();
 
         var isDelete   = (form.getAttribute('action') || '').indexOf('delete_student.php') !== -1;
+        /* Impersonation must navigate the whole window, not be AJAX-submitted
+           into the modal — so let these forms submit normally. */
+        if ((form.getAttribute('action') || '').indexOf('impersonate.php') !== -1) return;
         var idField    = form.querySelector('[name=student_id]') || form.querySelector('[name=id]');
         var studentId  = idField ? idField.value : '';
         var btn        = form.querySelector('button[type=submit]');
@@ -162,6 +166,26 @@ function suspendStudent(id, currentlySuspended){
 function messageStudent(studentId){
     if(!studentId) return alert('Invalid student ID');
     window.open('/admin/message_student.php?id=' + studentId, '_blank');
+}
+
+function loginAs(studentId){
+    var key = prompt('Enter the admin survey key to login as this student:');
+    if (key === null || key.trim() === '') return;
+    var csrfInput = document.querySelector('[name=csrf_token]');
+    var token = csrfInput ? csrfInput.value : '';
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/admin/impersonate.php';
+    function addHidden(name, value){
+        var i = document.createElement('input');
+        i.type = 'hidden'; i.name = name; i.value = value;
+        form.appendChild(i);
+    }
+    addHidden('student_id', studentId);
+    addHidden('survey_key', key);
+    addHidden('csrf_token', token);
+    document.body.appendChild(form);
+    form.submit();
 }
 
 /* =========================

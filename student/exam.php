@@ -109,6 +109,11 @@ $draft_total_questions = count($answers);
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Examination</title>
 <?= ui_css() ?>
+<style>
+    .card-gold .panel{color:var(--text);}
+    .card-gold .panel .small{color:var(--text-muted);}
+    .card-gold .panel strong{color:var(--emerald-900);}
+</style>
 </head>
 <?php ui_page_start('student', 'exam', 'Exam', 'Examination'); ?>
 

@@ -18,7 +18,7 @@ if ($is_admin) {
 
 /* ============ FETCH ATTEMPT ============ */
 $stmt = $conn->prepare("
-    SELECT e.*, u.name, u.email, u.profile_image
+    SELECT e.*, u.name, u.email
     FROM exam_attempts e
     JOIN users u ON u.id = e.student_id
     WHERE e.id = ? AND e.student_id = ? AND e.status IN ('approved','rejected')
@@ -68,11 +68,6 @@ while ($row = $res->fetch_assoc()) $answers[] = $row;
     }
     .result-name{text-align:center;font-size:1.55rem;margin:6px 0 2px;color:var(--emerald-900);}
     .result-email{text-align:center;color:var(--text-muted);font-size:.85rem;margin:0 0 8px;}
-    .result-photo{
-        width:84px;height:100px;margin:4px auto;border:2px solid var(--gold);border-radius:6px;
-        padding:2px;background:#fff;box-shadow:0 2px 6px rgba(0,0,0,.08);
-    }
-    .result-photo img{width:100%;height:100%;object-fit:cover;border-radius:3px;display:block;}
     .result-overall{
         display:flex;justify-content:center;align-items:center;gap:20px;flex-wrap:wrap;
         background:linear-gradient(135deg,var(--emerald-900),var(--emerald-700));color:#fff;
@@ -85,6 +80,7 @@ while ($row = $res->fetch_assoc()) $answers[] = $row;
     table.result-table th{background:var(--surface-muted);}
     .result-signatures{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-top:22px;}
     .result-signature{text-align:center;flex:1;}
+    .result-sig-img{max-width:150px;max-height:60px;object-fit:contain;display:block;margin:0 auto 6px;}
     .sig-line{width:180px;max-width:100%;border-bottom:2px solid var(--text);margin:0 auto 8px;}
     .result-signature span{font-size:.82rem;color:var(--text-muted);}
     .no-print{max-width:900px;margin:0 auto 18px;display:flex;gap:10px;flex-wrap:wrap;}
@@ -93,21 +89,32 @@ while ($row = $res->fetch_assoc()) $answers[] = $row;
         .sidebar,.topbar,.footer,.no-print{display:none !important;}
         .main-area{margin:0 !important;}
         .main-content{padding:0 !important;}
-        .result-sheet{box-shadow:none;margin:0;max-width:100%;padding:0;}
-        .result-border{padding:7mm 9mm;}
-        .result-header{padding-bottom:8px;margin-bottom:10px;}
-        .result-logo{width:62px;height:62px;margin:0 auto 8px;}
-        .result-logo img{width:62px;height:62px;}
-        .result-title{font-size:1.25rem;margin:2px 0 0;}
-        .result-name{font-size:1.4rem;margin:4px 0 0;}
-        .result-email{margin:0 0 6px;}
-        .result-photo{width:70px;height:84px;margin:2px auto;}
-        .result-overall{padding:9px 12px;margin:0 0 10px;gap:14px;}
-        .result-overall .num{font-size:1.35rem;}
-        table.result-table{font-size:.78rem;margin-bottom:10px;}
-        table.result-table th,table.result-table td{padding:4px 7px;}
-        .result-signatures{margin-top:16px;}
         @page{size:A4 portrait;margin:8mm;}
+        .result-sheet{
+            box-shadow:none;margin:0;max-width:100%;padding:0;
+            break-inside:avoid;page-break-inside:avoid;
+            -webkit-print-color-adjust:exact;print-color-adjust:exact;
+        }
+        .result-border{
+            display:flex;flex-direction:column;
+            border:3px double var(--gold);
+            -webkit-print-color-adjust:exact;print-color-adjust:exact;
+            padding:6mm 8mm;
+        }
+        .result-header{padding-bottom:6px;margin-bottom:8px;}
+        .result-logo{width:54px;height:54px;margin:0 auto 6px;}
+        .result-logo img{width:54px;height:54px;}
+        .result-header h1{font-size:1.05rem;}
+        .result-header p{font-size:.75rem;}
+        .result-title{font-size:1.15rem;margin:2px 0 0;}
+        .result-name{font-size:1.25rem;margin:4px 0 0;}
+        .result-email{margin:0 0 4px;}
+        .result-overall{padding:7px 10px;margin:0 0 8px;gap:14px;}
+        .result-overall .num{font-size:1.2rem;}
+        table.result-table{font-size:.72rem;margin-bottom:8px;}
+        table.result-table th,table.result-table td{padding:3px 6px;}
+        .result-sig-img{max-width:110px;max-height:44px;}
+        .result-signatures{margin-top:auto;padding-top:10px;}
     }
 </style>
 </head>
@@ -135,10 +142,6 @@ while ($row = $res->fetch_assoc()) $answers[] = $row;
 
             <h2 class="result-name"><?= htmlspecialchars($attempt['name']) ?></h2>
             <p class="result-email"><?= htmlspecialchars($attempt['email']) ?></p>
-
-            <?php if (!empty($attempt['profile_image'])): ?>
-                <div class="result-photo"><img src="/uploads/profile_pics/<?= htmlspecialchars($attempt['profile_image']) ?>" alt="Student photo"></div>
-            <?php endif; ?>
 
             <div class="result-overall">
                 <div style="text-align:center;">
@@ -190,10 +193,12 @@ while ($row = $res->fetch_assoc()) $answers[] = $row;
 
             <div class="result-signatures">
                 <div class="result-signature">
+                    <img class="result-sig-img" src="/signature/file_000000003dd881f481e869e1a9a29a78.png" alt="Signature">
                     <div class="sig-line"></div>
                     <span>Academy Administrator</span>
                 </div>
                 <div class="result-signature">
+                    <img class="result-sig-img" src="/signature/file_000000003dd881f481e869e1a9a29a78.png" alt="Signature">
                     <div class="sig-line"></div>
                     <span>Head of Studies</span>
                 </div>

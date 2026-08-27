@@ -118,4 +118,18 @@ $surahs = $conn->query("SELECT id, name_en FROM surahs ORDER BY id");
     <a class="btn btn-gold btn-block" style="margin-top:14px;" href="/student/certificate.php?id=<?=$student_id?>" target="_blank">
         <?= ui_icon('gem', 16) ?> View Student Certificate
     </a>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
+
+    <!-- Survey / Login as this Student -->
+    <div class="form-group">
+        <label class="form-label">Survey — Login as this Student</label>
+        <form method="POST" action="/admin/impersonate.php">
+            <?= csrf_field() ?>
+            <input type="hidden" name="student_id" value="<?=$student_id?>">
+            <input class="form-input" type="password" name="survey_key" placeholder="Admin survey key" required autocomplete="off" style="margin-bottom:8px;">
+            <button class="btn btn-gold btn-block" type="submit"><?= ui_icon('eye', 16) ?> Login as this Student</button>
+        </form>
+        <p class="small text-muted" style="margin:6px 0 0;">Opens this student&rsquo;s account in survey mode so you can experience their journey. Requires the admin survey key.</p>
+    </div>
 </div>

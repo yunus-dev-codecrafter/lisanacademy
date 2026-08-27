@@ -21,11 +21,26 @@ $stmt->bind_param("i", $user_id);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
 
-/* Account deleted (e.g. a graduate purged after one week) — force logout. */
+/* Account deleted (e.g. a graduate purged after one week). When impersonating,
+   the "account" that vanished is the student we were surveying — drop back to
+   the admin dashboard instead of destroying the whole session. */
 if (!$user) {
+    if (function_exists('is_impersonating') && is_impersonating()) {
+        stop_impersonation($conn);
+        header("Location: /admin/dashboard.php");
+        exit;
+    }
     session_destroy();
     header("Location: /auth/login.php?error=account_deleted");
     exit;
+}
+
+/* -------- IMPERSONATION (SURVEY MODE) --------
+   While an admin is surveying a student account, the suspended / blocked /
+   holiday gates are intentionally bypassed so the admin can experience (and
+   debug) the student's full journey regardless of access state. */
+if (function_exists('is_impersonating') && is_impersonating()) {
+    return;
 }
 
 /* -------- SUSPENDED -------- */
@@ -37,8 +52,8 @@ if ($user['suspended'] == 1) {
 
 /* -------- BLOCKED STUDENT -------- */
 /*
- Allow blocked students to view ONLY blocked.php
- Prevent infinite redirect
+  Allow blocked students to view ONLY blocked.php
+  Prevent infinite redirect
 */
 $currentPage = basename($_SERVER['PHP_SELF']);
 
@@ -53,10 +68,10 @@ if (
 
 /* -------- HOLIDAY MODE -------- */
 /*
- When holiday mode is active, students may only visit the holiday notice page
- and the whitelisted holiday features (certificate, exam result, invite,
- donate, fees, announcements, suggestions, profile). Every other student page
- is redirected to the holiday notice page. Admin access is unaffected.
+  When holiday mode is active, students may only visit the holiday notice page
+  and the whitelisted holiday features (certificate, exam result, invite,
+  donate, fees, announcements, suggestions, profile). Every other student page
+  is redirected to the holiday notice page. Admin access is unaffected.
 */
 if (
     $user['role'] === 'student' &&
