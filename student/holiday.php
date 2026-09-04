@@ -76,6 +76,14 @@ try {
 </div>
 
 <div class="grid-2 animate-rise d2">
+    <?php if ($latest_attempt && $latest_attempt['status'] === 'rejected'): ?>
+        <a class="action-card action-red" href="exam.php">
+            <span class="ac-ico"><?= ui_icon('refresh') ?></span>
+            <span class="ac-title">Retake Exam</span>
+            <span class="ac-sub">Your last attempt needs a retake</span>
+        </a>
+    <?php endif; ?>
+
     <?php if ($latest_attempt): ?>
         <a class="action-card action-gold" href="exam_result.php?attempt=<?= (int)$latest_attempt['id'] ?>">
             <span class="ac-ico"><?= ui_icon('download') ?></span>

@@ -986,6 +986,9 @@ if (!function_exists('holiday_allowed_student_page')) {
         $allowed = [
             'holiday.php',
             'certificate.php',
+            'exam.php',
+            'exam_start.php',
+            'submit_exam.php',
             'exam_result.php',
             'invite.php',
             'donate.php',
