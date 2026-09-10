@@ -4,6 +4,12 @@ require '../auth/auth_check.php';
 require '../config/db.php';
 require_role('student');
 
+if (student_is_hafiz($conn, (int)($_SESSION['user_id'] ?? 0))) {
+    if ($is_ajax) { echo 'You are a Hafiz student. Please use the Qur\'an Revision page.'; exit; }
+    header("Location: hafiz_revision.php");
+    exit;
+}
+
 /* True when the request came from the in-page recorder (fetch), not a plain form. */
 $is_ajax = strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest';
 

@@ -9,7 +9,7 @@ if ($student_id <= 0) exit('Invalid student ID');
 
 /* ================= STUDENT ================= */
 $stmt = $conn->prepare("
-  SELECT id, name, email, suspended, blocked
+  SELECT id, name, email, suspended, blocked" . (db_column_exists($conn, 'users', 'hafiz') ? ", hafiz" : "") . "
   FROM users
   WHERE id=? AND role='student'
 ");
@@ -17,6 +17,8 @@ $stmt->bind_param("i", $student_id);
 $stmt->execute();
 $student = $stmt->get_result()->fetch_assoc();
 if (!$student) exit('Student not found');
+
+$is_hafiz = db_column_exists($conn, 'users', 'hafiz') && (int)($student['hafiz'] ?? 0) === 1;
 
 /* ========== ACTIVENESS ========== */
 $active = $conn->query("
@@ -47,7 +49,75 @@ $surahs = $conn->query("SELECT id, name_en FROM surahs ORDER BY id");
 
     <h2 style="margin:0 0 4px;"><?=htmlspecialchars($student['name'])?></h2>
     <p class="small text-muted" style="margin:0 0 12px;"><?=htmlspecialchars($student['email'])?></p>
+    <?php if ($is_hafiz): ?>
+        <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;">Hafiz</span>
+    <?php endif; ?>
     <span class="badge badge-green">Activeness: <?=$active?> lesson requests</span>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
+
+    <!-- Hafiz Designation -->
+    <?php if (db_column_exists($conn, 'users', 'hafiz')): ?>
+    <div class="form-group">
+        <label class="form-label">Student Type Designation</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <?php if ($is_hafiz): ?>
+                <form method="POST" action="set_hafiz.php" style="flex:1;min-width:150px;" onsubmit="return confirm('Remove Hafiz designation? This student will revert to the standard learner flow.');">
+                    <input type="hidden" name="student_id" value="<?=$student_id?>">
+                    <input type="hidden" name="action" value="unset">
+                    <?= csrf_field() ?>
+                    <button class="btn btn-block btn-danger" type="submit"><?= ui_icon('close', 15) ?> Remove Hafiz Designation</button>
+                </form>
+            <?php else: ?>
+                <form method="POST" action="set_hafiz.php" style="flex:1;min-width:150px;" onsubmit="return confirm('Designate this student as Hafiz? They will be switched to the Qur&#8217;an revision flow.');">
+                    <input type="hidden" name="student_id" value="<?=$student_id?>">
+                    <input type="hidden" name="action" value="set">
+                    <?= csrf_field() ?>
+                    <button class="btn btn-block" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;" type="submit"><?= ui_icon('book', 15) ?> Designate as Hafiz</button>
+                </form>
+            <?php endif; ?>
+        </div>
+        <p class="small text-muted" style="margin:6px 0 0;">Hafiz students revise from memory instead of learning new material.</p>
+    </div>
+    <?php endif; ?>
+
+    <!-- Hafiz Revision Progress -->
+    <?php if ($is_hafiz && db_table_exists($conn, 'hafiz_revision')): ?>
+    <?php
+    $rev = hafiz_get_active_revision($conn, $student_id);
+    $completed_cycles = hafiz_completed_cycles_count($conn, $student_id);
+    ?>
+    <div class="form-group">
+        <label class="form-label">Hafiz Revision Progress</label>
+        <?php if ($rev): ?>
+            <?php
+            $week_no = hafiz_current_week_no($rev);
+            $pages = hafiz_pages_this_week($conn, (int)$rev['id'], $week_no);
+            ?>
+            <div class="panel" style="margin:0;">
+                <p class="small" style="margin:0 0 8px;"><strong>Cycle #<?= (int)$rev['cycle_no'] ?></strong> · Week <?= $week_no ?> · Page <?= (int)$rev['current_page'] ?> / 604</p>
+                <p class="small" style="margin:0 0 8px;">This week: <?= $pages ?> / 20 pages · <?php echo (int)$rev['skip_approved'] ? '<span style="color:var(--emerald-700);">Skip approved</span>' : 'No skip approval'; ?></p>
+                <p class="small" style="margin:0;"><strong>Completed cycles:</strong> <?= $completed_cycles ?></p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                <form method="POST" action="approve_hafiz_skip.php" style="display:inline;">
+                    <input type="hidden" name="student_id" value="<?=$student_id?>">
+                    <?php if ((int)$rev['skip_approved']): ?>
+                        <input type="hidden" name="action" value="revoke">
+                        <?= csrf_field() ?>
+                        <button class="btn btn-sm btn-danger" type="submit"><?= ui_icon('close', 14) ?> Revoke Skip Approval</button>
+                    <?php else: ?>
+                        <input type="hidden" name="action" value="approve">
+                        <?= csrf_field() ?>
+                        <button class="btn btn-sm" type="submit"><?= ui_icon('check', 14) ?> Approve Weekly Skip</button>
+                    <?php endif; ?>
+                </form>
+            </div>
+        <?php else: ?>
+            <p class="small text-muted" style="margin:0;">No active revision cycle. The student needs to start one from their dashboard.</p>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
 
     <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
 

@@ -33,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email    = trim($_POST['email'] ?? '');
         $pass     = $_POST['password'] ?? '';
         $phone    = trim($_POST['phone'] ?? '');
+        $hafiz    = (int)($_POST['hafiz'] ?? 0);
 
         if ($name === '' || $email === '' || $pass === '') {
             redirect('applications.php?error=' . urlencode('Name, email and password are required to activate.'));
@@ -50,7 +51,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $hashed = password_hash($pass, PASSWORD_DEFAULT);
         $has_phone = db_column_exists($conn, 'users', 'phone');
-        if ($has_phone && $phone !== '') {
+        $has_hafiz = db_column_exists($conn, 'users', 'hafiz');
+
+        if ($has_phone && $has_hafiz && $phone !== '') {
+            $stmt = $conn->prepare("INSERT INTO users (name, email, phone, password, role, device_type, suspended, blocked, hafiz) VALUES (?, ?, ?, ?, 'student', 'iphone', 0, 0, ?)");
+            $stmt->bind_param("ssssi", $name, $email, $phone, $hashed, $hafiz);
+        } elseif ($has_phone) {
             $stmt = $conn->prepare("INSERT INTO users (name, email, phone, password, role, device_type, suspended, blocked) VALUES (?, ?, ?, ?, 'student', 'iphone', 0, 0)");
             $stmt->bind_param("ssss", $name, $email, $phone, $hashed);
         } else {
@@ -59,6 +65,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $stmt->execute();
         $new_student_id = (int)$conn->insert_id;
+
+        /* If Hafiz, create first revision cycle */
+        if ($hafiz === 1 && $new_student_id > 0 && db_table_exists($conn, 'hafiz_revision')) {
+            try {
+                $now = date('Y-m-d H:i:s');
+                $ins = $conn->prepare("
+                    INSERT INTO hafiz_revision (student_id, cycle_no, current_page, week_started_at, status, started_at)
+                    VALUES (?, 1, 1, ?, 'active', ?)
+                ");
+                $ins->bind_param("iss", $new_student_id, $now, $now);
+                $ins->execute();
+            } catch (Throwable $e) { /* ignore */ }
+        }
 
         /* Referral auto-link: match pending friend invites by phone. */
         if ($phone !== '' && db_column_exists($conn, 'student_invites', 'status')) {
@@ -294,6 +313,16 @@ $error     = isset($_GET['error']) ? trim($_GET['error']) : '';
                 <input class="form-input" type="text" id="act_password" name="password" required minlength="6">
                 <small class="text-muted" style="font-size:.78rem;">Share this password with the student privately after activating.</small>
             </div>
+            <?php if (db_column_exists($conn, 'users', 'hafiz')): ?>
+            <div class="form-group">
+                <label class="form-label" for="act_hafiz">Student Type</label>
+                <select class="form-select" id="act_hafiz" name="hafiz">
+                    <option value="0" selected>Non-Hafiz (Learner)</option>
+                    <option value="1">Hafiz (Revision Mode)</option>
+                </select>
+                <small class="text-muted" style="font-size:.78rem;">Hafiz students revise from memory instead of learning new material.</small>
+            </div>
+            <?php endif; ?>
             <button class="btn btn-gold btn-lg btn-block" type="submit"><?= ui_icon('user', 17) ?> Create Student Account</button>
         </form>
     </div>

@@ -1114,6 +1114,560 @@ if (!function_exists('csrf_verify')) {
     }
 }
 
+/* =====================================================
+   HAFIZ REVISION HELPERS
+   ===================================================== */
+
+if (!function_exists('student_is_hafiz')) {
+    /**
+     * True when the student has the Hafiz flag set. Safe if column is missing.
+     */
+    function student_is_hafiz($conn, $student_id) {
+        $student_id = (int)$student_id;
+        if (!db_column_exists($conn, 'users', 'hafiz')) return false;
+        try {
+            $stmt = $conn->prepare("SELECT hafiz FROM users WHERE id = ? LIMIT 1");
+            $stmt->bind_param("i", $student_id);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            return $r ? ((int)$r['hafiz'] === 1) : false;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('hafiz_get_active_revision')) {
+    /**
+     * Return the active hafiz_revision row for this student, or null.
+     */
+    function hafiz_get_active_revision($conn, $student_id) {
+        $student_id = (int)$student_id;
+        if (!db_table_exists($conn, 'hafiz_revision')) return null;
+        try {
+            $stmt = $conn->prepare("SELECT * FROM hafiz_revision WHERE student_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1");
+            $stmt->bind_param("i", $student_id);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            return $r ?: null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('hafiz_has_active_revision')) {
+    /**
+     * True when the student has an active revision cycle.
+     */
+    function hafiz_has_active_revision($conn, $student_id) {
+        return hafiz_get_active_revision($conn, (int)$student_id) !== null;
+    }
+}
+
+if (!function_exists('hafiz_current_week_no')) {
+    /**
+     * Calculate the current week number from a revision row's current_page.
+     * Pages 1-20 = week 1, 21-40 = week 2, etc.
+     */
+    function hafiz_current_week_no($revision) {
+        $page = (int)($revision['current_page'] ?? 1);
+        return (int)ceil($page / 20);
+    }
+}
+
+if (!function_exists('hafiz_pages_this_week')) {
+    /**
+     * Count of accepted hafiz_sessions for the given week in the given cycle.
+     */
+    function hafiz_pages_this_week($conn, $revision_id, $week_no) {
+        $revision_id = (int)$revision_id;
+        $week_no = (int)$week_no;
+        if (!db_table_exists($conn, 'hafiz_sessions') || !db_table_exists($conn, 'hafiz_revision')) return 0;
+
+        $from_page = ($week_no - 1) * 20 + 1;
+        $to_page = $week_no * 20;
+
+        try {
+            $stmt = $conn->prepare("
+                SELECT COUNT(*) c FROM hafiz_sessions
+                WHERE revision_id = ? AND page_no >= ? AND page_no <= ? AND status = 'accepted'
+            ");
+            $stmt->bind_param("iii", $revision_id, $from_page, $to_page);
+            $stmt->execute();
+            return (int)$stmt->get_result()->fetch_assoc()['c'];
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+}
+
+if (!function_exists('hafiz_week_quota_met')) {
+    /**
+     * True when the student has recited at least 20 pages this week.
+     */
+    function hafiz_week_quota_met($conn, $revision_id, $week_no) {
+        return hafiz_pages_this_week($conn, $revision_id, $week_no) >= 20;
+    }
+}
+
+if (!function_exists('hafiz_friday_boundary')) {
+    /**
+     * Return the next Friday 23:59:59 boundary from a given date.
+     * If today is Friday and it's before 23:59, returns today's Friday 23:59:59.
+     * If today is Friday and it's past 23:59, returns next Friday.
+     * For Saturday-Thursday, returns the upcoming Friday.
+     */
+    function hafiz_friday_boundary($from_date = null) {
+        $d = new DateTime($from_date ?: date('Y-m-d H:i:s'), new DateTimeZone('Africa/Lagos'));
+        $day_of_week = (int)$d->format('N'); // 1=Mon ... 7=Sun
+
+        if ($day_of_week === 5) {
+            // Today is Friday
+            $end_of_day = clone $d;
+            $end_of_day->setTime(23, 59, 59);
+            if ($d->getTimestamp() < $end_of_day->getTimestamp()) {
+                return $end_of_day->format('Y-m-d H:i:s');
+            }
+            // Past Friday, get next Friday
+            $d->modify('+7 days');
+        } else {
+            // Days until Friday: Friday=5, so for Mon(1) it's +4, Tue(2)->+3, etc.
+            $days_until_friday = (5 - $day_of_week + 7) % 7;
+            if ($days_until_friday === 0) $days_until_friday = 7;
+            $d->modify("+$days_until_friday days");
+        }
+        $d->setTime(23, 59, 59);
+        return $d->format('Y-m-d H:i:s');
+    }
+}
+
+if (!function_exists('hafiz_check_week_transition')) {
+    /**
+     * Detect if the weekly cycle has expired (past Friday). If so:
+     *  - If quota met or skip approved: log the week as complete, start new week.
+     *  - Else: RESET progress to page 1 (new cycle).
+     *
+     * Returns ['action' => 'ok'|'reset'|'new_week', 'reason' => string].
+     */
+    function hafiz_check_week_transition($conn, $student_id) {
+        $student_id = (int)$student_id;
+        $revision = hafiz_get_active_revision($conn, $student_id);
+        if (!$revision) return ['action' => 'ok', 'reason' => 'no active revision'];
+
+        $week_started_at = $revision['week_started_at'];
+        $now = date('Y-m-d H:i:s');
+        $friday = hafiz_friday_boundary($week_started_at);
+
+        // If we haven't passed the Friday boundary yet, no transition needed
+        if (strtotime($now) < strtotime($friday)) {
+            return ['action' => 'ok', 'reason' => 'still in current week'];
+        }
+
+        // We've passed the Friday boundary — check last week's quota
+        $revision_id = (int)$revision['id'];
+        $week_no = hafiz_current_week_no($revision);
+        $pages = hafiz_pages_this_week($conn, $revision_id, $week_no);
+        $quota_met = $pages >= 20;
+        $skip_approved = (int)$revision['skip_approved'] === 1;
+
+        if ($quota_met || $skip_approved) {
+            // Log the completed week
+            $was_skipped = $skip_approved && !$quota_met ? 1 : 0;
+            try {
+                $stmt = $conn->prepare("
+                    INSERT INTO hafiz_weekly_log (revision_id, student_id, week_no, pages_completed, target_met, was_skipped, week_started_at, week_ended_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+                    ON DUPLICATE KEY UPDATE
+                        pages_completed = VALUES(pages_completed),
+                        target_met = VALUES(target_met),
+                        was_skipped = VALUES(was_skipped),
+                        week_ended_at = NOW()
+                ");
+                $target_met_db = $quota_met ? 1 : 0;
+                $stmt->bind_param("iiiisis", $revision_id, $student_id, $week_no, $pages, $target_met_db, $was_skipped, $week_started_at);
+                $stmt->execute();
+            } catch (Throwable $e) { /* ignore */ }
+
+            // Start new week
+            try {
+                $stmt = $conn->prepare("
+                    UPDATE hafiz_revision
+                    SET week_started_at = NOW(), skip_approved = 0, skip_approved_at = NULL
+                    WHERE id = ?
+                ");
+                $stmt->bind_param("i", $revision_id);
+                $stmt->execute();
+            } catch (Throwable $e) { /* ignore */ }
+
+            return ['action' => 'new_week', 'reason' => 'week completed, new week started'];
+        }
+
+        // Missed quota, no approval — RESET
+        $new_cycle = (int)$revision['cycle_no'] + 1;
+        try {
+            // Log the failed week
+            $was_skipped = 0;
+            $target_met_db = 0;
+            $stmt = $conn->prepare("
+                INSERT INTO hafiz_weekly_log (revision_id, student_id, week_no, pages_completed, target_met, was_skipped, week_started_at, week_ended_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+                ON DUPLICATE KEY UPDATE
+                    pages_completed = VALUES(pages_completed),
+                    target_met = VALUES(target_met),
+                    was_skipped = VALUES(was_skipped),
+                    week_ended_at = NOW()
+            ");
+            $stmt->bind_param("iiiisis", $revision_id, $student_id, $week_no, $pages, $target_met_db, $was_skipped, $week_started_at);
+            $stmt->execute();
+        } catch (Throwable $e) { /* ignore */ }
+
+        try {
+            $stmt = $conn->prepare("
+                UPDATE hafiz_revision
+                SET current_page = 1, cycle_no = ?, week_started_at = NOW(),
+                    skip_approved = 0, skip_approved_at = NULL
+                WHERE id = ?
+            ");
+            $stmt->bind_param("ii", $new_cycle, $revision_id);
+            $stmt->execute();
+        } catch (Throwable $e) { /* ignore */ }
+
+        return ['action' => 'reset', 'reason' => 'weekly target not met, progress reset to page 1'];
+    }
+}
+
+if (!function_exists('hafiz_advance_page')) {
+    /**
+     * Advance the current_page by 1. If page > 604, mark cycle as completed.
+     * Returns 'advanced' or 'cycle_complete'.
+     */
+    function hafiz_advance_page($conn, $revision_id) {
+        $revision_id = (int)$revision_id;
+        if (!db_table_exists($conn, 'hafiz_revision')) return 'advanced';
+
+        try {
+            $stmt = $conn->prepare("SELECT current_page FROM hafiz_revision WHERE id = ? LIMIT 1");
+            $stmt->bind_param("i", $revision_id);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            $current_page = (int)($r['current_page'] ?? 1);
+        } catch (Throwable $e) {
+            return 'advanced';
+        }
+
+        $next_page = $current_page + 1;
+
+        if ($next_page > 604) {
+            try {
+                $stmt = $conn->prepare("
+                    UPDATE hafiz_revision SET status = 'completed', completed_at = NOW() WHERE id = ?
+                ");
+                $stmt->bind_param("i", $revision_id);
+                $stmt->execute();
+            } catch (Throwable $e) { /* ignore */ }
+            return 'cycle_complete';
+        }
+
+        try {
+            $stmt = $conn->prepare("UPDATE hafiz_revision SET current_page = ? WHERE id = ?");
+            $stmt->bind_param("ii", $next_page, $revision_id);
+            $stmt->execute();
+        } catch (Throwable $e) { /* ignore */ }
+
+        return 'advanced';
+    }
+}
+
+if (!function_exists('hafiz_can_recite')) {
+    /**
+     * Master gate check: can the student start a new recitation session?
+     * Returns ['ok' => bool, 'reason' => string].
+     */
+    function hafiz_can_recite($conn, $student_id) {
+        $student_id = (int)$student_id;
+        if (!student_is_hafiz($conn, $student_id)) {
+            return ['ok' => false, 'reason' => 'You are not designated as a Hafiz student.'];
+        }
+
+        $revision = hafiz_get_active_revision($conn, $student_id);
+        if (!$revision) {
+            return ['ok' => false, 'reason' => 'You do not have an active revision cycle. Please contact the admin.'];
+        }
+
+        if ((int)$revision['current_page'] > 604) {
+            return ['ok' => false, 'reason' => 'You have completed this revision cycle! Masha\'Allah!'];
+        }
+
+        // Check for pending session
+        if (db_table_exists($conn, 'hafiz_sessions')) {
+            try {
+                $stmt = $conn->prepare("SELECT id FROM hafiz_sessions WHERE student_id = ? AND status = 'pending' LIMIT 1");
+                $stmt->bind_param("i", $student_id);
+                $stmt->execute();
+                if ($stmt->get_result()->fetch_assoc()) {
+                    return ['ok' => false, 'reason' => 'You already have a pending recitation awaiting review. Please wait for your teacher to review it.'];
+                }
+            } catch (Throwable $e) { /* ignore */ }
+        }
+
+        // Check weekly max (21 pages)
+        $week_no = hafiz_current_week_no($revision);
+        $pages = hafiz_pages_this_week($conn, (int)$revision['id'], $week_no);
+        if ($pages >= 21) {
+            return ['ok' => false, 'reason' => 'You have reached the weekly maximum of 21 pages. Well done! Wait for next week.'];
+        }
+
+        // Check week transition
+        $transition = hafiz_check_week_transition($conn, $student_id);
+        if ($transition['action'] === 'reset') {
+            return ['ok' => false, 'reason' => 'You missed the weekly target. Your progress has been reset to page 1. Start a new cycle.'];
+        }
+
+        return ['ok' => true, 'reason' => ''];
+    }
+}
+
+if (!function_exists('hafiz_weekly_skip_remaining')) {
+    /**
+     * Pages remaining this week before hitting the 21-page maximum.
+     */
+    function hafiz_weekly_skip_remaining($conn, $revision_id, $week_no) {
+        $pages = hafiz_pages_this_week($conn, $revision_id, $week_no);
+        return max(0, 21 - $pages);
+    }
+}
+
+if (!function_exists('hafiz_completed_cycles_count')) {
+    /**
+     * Number of completed revision cycles for this student.
+     */
+    function hafiz_completed_cycles_count($conn, $student_id) {
+        $student_id = (int)$student_id;
+        if (!db_table_exists($conn, 'hafiz_revision')) return 0;
+        try {
+            $stmt = $conn->prepare("SELECT COUNT(*) c FROM hafiz_revision WHERE student_id = ? AND status = 'completed'");
+            $stmt->bind_param("i", $student_id);
+            $stmt->execute();
+            return (int)$stmt->get_result()->fetch_assoc()['c'];
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+}
+
+/* =====================================================
+   EXAM GATING: Hafiz are exempt from exams
+   ===================================================== */
+
+if (!function_exists('student_in_exam')) {
+    /**
+     * True when this individual student's normal lessons are paused because
+     * they were selected to participate in the currently-active exam term.
+     * Hafiz are always exempt.
+     */
+    function student_in_exam($conn, $student_id) {
+        if (student_is_hafiz($conn, $student_id)) return false;
+        return exam_mode_on($conn) && student_exam_selected($conn, $student_id);
+    }
+}
+
+if (!function_exists('student_exam_locked')) {
+    /**
+     * True when the student missed the current exam term and has not yet
+     * gotten an approved result. Hafiz are always exempt.
+     */
+    function student_exam_locked($conn, $student_id) {
+        if (student_is_hafiz($conn, $student_id)) return false;
+        $student_id = (int)$student_id;
+        try {
+            $stmt = $conn->prepare("SELECT exam_defaulted FROM users WHERE id = ? LIMIT 1");
+            $stmt->bind_param("i", $student_id);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            return $r ? ((int)$r['exam_defaulted'] === 1) : false;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('can_take_exam')) {
+    /**
+     * True when the student may sit the exam. Hafiz are always exempt.
+     */
+    function can_take_exam($conn, $student_id) {
+        if (student_is_hafiz($conn, $student_id)) return false;
+        return student_in_exam($conn, $student_id) || student_exam_access($conn, $student_id);
+    }
+}
+
+if (!function_exists('finalize_exam_term')) {
+    /**
+     * Close the active exam term: switch exam mode off, then snapshot
+     * participation. Students with NO attempt in this term become defaulters.
+     * Hafiz students are excluded.
+     */
+    function finalize_exam_term($conn) {
+        $term = exam_term_info($conn);
+        $term_id = $term ? (int)$term['id'] : 0;
+
+        if ($term && !$term['deactivated_at']) {
+            $conn->query("UPDATE exam_terms SET deactivated_at = NOW(), finalized = 1 WHERE id = $term_id");
+        }
+        $conn->query("UPDATE app_settings SET setting_value = 'off' WHERE setting_key = 'exam_mode'");
+
+        if ($term_id <= 0) return;
+
+        $hafiz_filter = db_column_exists($conn, 'users', 'hafiz') ? 'AND u.hafiz = 0' : '';
+
+        $res = $conn->query("
+            SELECT u.id FROM users u
+            WHERE u.role = 'student'
+              AND u.exam_selected = 1
+              $hafiz_filter
+              AND NOT EXISTS (
+                  SELECT 1 FROM exam_attempts ea
+                  WHERE ea.student_id = u.id AND ea.term_id = $term_id
+                    AND ea.status != 'draft'
+              )
+        ");
+        $ids = [];
+        while ($r = $res->fetch_assoc()) $ids[] = (int)$r['id'];
+        if (!empty($ids)) {
+            $ids_str = implode(',', $ids);
+            try {
+                $conn->query("
+                    UPDATE users
+                    SET exam_defaulted = 1, exam_owed = 1, exam_access = 0
+                    WHERE id IN ($ids_str)
+                ");
+            } catch (Throwable $e) { /* ignore */ }
+        }
+
+        $res = $conn->query("
+            SELECT DISTINCT ea.student_id FROM exam_attempts ea
+            WHERE ea.term_id = $term_id AND ea.status = 'rejected'
+              AND NOT EXISTS (
+                  SELECT 1 FROM exam_attempts a2
+                  WHERE a2.student_id = ea.student_id AND a2.term_id = $term_id AND a2.status = 'approved'
+              )
+        ");
+        $ids = [];
+        while ($r = $res->fetch_assoc()) $ids[] = (int)$r['student_id'];
+        if (!empty($ids)) {
+            $ids_str = implode(',', $ids);
+            try {
+                $conn->query("UPDATE users SET exam_defaulted = 1, exam_owed = 0, exam_access = 1 WHERE id IN ($ids_str)");
+            } catch (Throwable $e) { /* ignore */ }
+        }
+    }
+}
+
+if (!function_exists('student_has_graduated')) {
+    /**
+     * True when the student has completed every surah of the Glorious Qur'an.
+     * Hafiz students are handled differently (cycle-based completion).
+     */
+    function student_has_graduated($conn, $student_id) {
+        if (student_is_hafiz($conn, $student_id)) return false;
+        $student_id = (int)$student_id;
+        try {
+            $total = (int)$conn->query("SELECT COUNT(*) c FROM surahs")->fetch_assoc()['c'];
+            if ($total <= 0) return false;
+            $done = (int)$conn->query("
+                SELECT COUNT(DISTINCT sl.surah_id) c
+                FROM student_learning sl
+                WHERE sl.student_id = $student_id AND sl.status = 'completed'
+            ")->fetch_assoc()['c'];
+            return $done >= $total;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('mark_graduated_if_due')) {
+    /**
+     * Record the moment a student first reaches 100% completion.
+     * Hafiz are excluded.
+     */
+    function mark_graduated_if_due($conn, $student_id) {
+        if (student_is_hafiz($conn, $student_id)) return false;
+        if (!student_has_graduated($conn, $student_id)) return false;
+        $student_id = (int)$student_id;
+        try {
+            $r = $conn->query("SELECT graduated_at FROM users WHERE id = $student_id")->fetch_assoc();
+            if ($r && empty($r['graduated_at'])) {
+                $conn->query("UPDATE users SET graduated_at = NOW() WHERE id = $student_id");
+                return true;
+            }
+        } catch (Throwable $e) { /* ignore */ }
+        return false;
+    }
+}
+
+if (!function_exists('purge_graduated_accounts')) {
+    /**
+     * Hard-delete every student account that graduated more than 7 days ago.
+     * Hafiz are excluded.
+     */
+    function purge_graduated_accounts($conn) {
+        try {
+            $hafiz_filter = db_column_exists($conn, 'users', 'hafiz') ? 'AND hafiz = 0' : '';
+            $res = $conn->query("
+                SELECT id FROM users
+                WHERE role = 'student' AND graduated_at IS NOT NULL
+                  AND graduated_at < NOW() - INTERVAL 7 DAY
+                  $hafiz_filter
+            ");
+            $ids = [];
+            while ($r = $res->fetch_assoc()) $ids[] = (int)$r['id'];
+            if (empty($ids)) return 0;
+            $ids_str = implode(',', $ids);
+
+            try {
+                $audio = $conn->query("SELECT audio_file FROM exam_answers WHERE attempt_id IN (SELECT id FROM exam_attempts WHERE student_id IN ($ids_str))");
+                $base = dirname(__DIR__, 2) . '/uploads/exam_audio/';
+                while ($r = $audio->fetch_assoc()) {
+                    $f = $base . basename((string)($r['audio_file'] ?? ''));
+                    if ($f !== $base && is_file($f)) @unlink($f);
+                }
+            } catch (Throwable $e) { /* ignore */ }
+            try {
+                $pics = $conn->query("SELECT profile_image FROM users WHERE id IN ($ids_str)");
+                $picBase = dirname(__DIR__, 2) . '/uploads/profile_pics/';
+                while ($r = $pics->fetch_assoc()) {
+                    $n = (string)($r['profile_image'] ?? '');
+                    if ($n !== '' && $n !== 'default.png') {
+                        $f = $picBase . basename($n);
+                        if (is_file($f)) @unlink($f);
+                    }
+                }
+            } catch (Throwable $e) { /* ignore */ }
+
+            foreach (['student_learning', 'student_recitation', 'exam_answers', 'exam_attempts',
+                      'certificates', 'announcement_reads', 'student_invites',
+                      'admin_audio', 'donations', 'suggestions', 'feedback'] as $t) {
+                try {
+                    $conn->query("DELETE FROM `$t` WHERE student_id IN ($ids_str)");
+                } catch (Throwable $e) { /* ignore */ }
+            }
+            // Also clean up hafiz tables
+            foreach (['hafiz_sessions', 'hafiz_weekly_log', 'hafiz_revision'] as $t) {
+                try {
+                    $conn->query("DELETE FROM `$t` WHERE student_id IN ($ids_str)");
+                } catch (Throwable $e) { /* ignore */ }
+            }
+
+            $conn->query("DELETE FROM users WHERE id IN ($ids_str)");
+            return count($ids);
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+}
+
 if (!function_exists('maybe_auto_request_next_lesson')) {
     /**
      * Automatically create the next lesson request for a student whose

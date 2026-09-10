@@ -5,8 +5,9 @@ include '../auth/auth_check.php';
 include '../config/db.php';
 
 /* Fetch all students */
+$hafiz_col = db_column_exists($conn, 'users', 'hafiz');
 $students = $conn->query("
-    SELECT id, name, email, blocked, suspended
+    SELECT id, name, email, blocked, suspended" . ($hafiz_col ? ", hafiz" : "") . "
     FROM users
     WHERE role='student'
     ORDER BY name ASC
@@ -30,6 +31,11 @@ $students = $conn->query("
 
 <div style="margin-bottom:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
     <a class="btn btn-gold" href="add_student.php"><?= ui_icon('user', 16) ?> Add New Student</a>
+    <?php if ($hafiz_col): ?>
+    <button class="btn btn-ghost filter-type" data-filter="all" onclick="filterByType('all')">All</button>
+    <button class="btn btn-ghost filter-type" data-filter="hafiz" onclick="filterByType('hafiz')"><?= ui_icon('book', 14) ?> Hafiz</button>
+    <button class="btn btn-ghost filter-type" data-filter="non-hafiz" onclick="filterByType('non-hafiz')">Non-Hafiz</button>
+    <?php endif; ?>
     <div style="flex:1;min-width:220px;position:relative;">
         <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);display:flex;color:var(--text-muted);pointer-events:none;"><?= ui_icon('search', 16) ?></span>
         <input class="form-input" type="search" id="studentSearch" placeholder="Search students by name or email…" autocomplete="off" style="padding-left:38px;">
@@ -44,11 +50,15 @@ $students = $conn->query("
 <?php while($s = $students->fetch_assoc()): ?>
 <div class="card card-hover animate-rise student-card"
      data-name="<?= htmlspecialchars(strtolower($s['name'])) ?>"
-     data-email="<?= htmlspecialchars(strtolower($s['email'])) ?>">
+     data-email="<?= htmlspecialchars(strtolower($s['email'])) ?>"
+     data-hafiz="<?= $hafiz_col ? (int)($s['hafiz'] ?? 0) : 0 ?>">
     <h3 style="margin:0 0 4px;"><?=htmlspecialchars($s['name'])?></h3>
     <p class="small text-muted" style="margin:0 0 12px;word-break:break-word;"><?=htmlspecialchars($s['email'])?></p>
 
     <p class="small" style="margin:0 0 14px;">
+        <?php if ($hafiz_col && (int)($s['hafiz'] ?? 0) === 1): ?>
+            <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;">Hafiz</span>
+        <?php endif; ?>
         <?php if ($s['blocked']): ?>
             <span class="badge badge-red">Blocked</span>
         <?php endif; ?>
@@ -193,6 +203,7 @@ function loginAs(studentId){
 ========================= */
 var searchInput = document.getElementById('studentSearch');
 var studentsGrid = document.getElementById('studentsGrid');
+var activeTypeFilter = 'all';
 
 function filterStudents() {
     var q = (searchInput ? searchInput.value : '').toLowerCase().trim();
@@ -201,18 +212,32 @@ function filterStudents() {
     cards.forEach(function (card) {
         var name = (card.getAttribute('data-name') || '').toLowerCase();
         var email = (card.getAttribute('data-email') || '').toLowerCase();
-        var match = q === '' || name.indexOf(q) !== -1 || email.indexOf(q) !== -1;
-        card.style.display = match ? '' : 'none';
-        if (match) visible++;
+        var isHafiz = card.getAttribute('data-hafiz') === '1';
+        var matchSearch = q === '' || name.indexOf(q) !== -1 || email.indexOf(q) !== -1;
+        var matchType = activeTypeFilter === 'all'
+            || (activeTypeFilter === 'hafiz' && isHafiz)
+            || (activeTypeFilter === 'non-hafiz' && !isHafiz);
+        card.style.display = (matchSearch && matchType) ? '' : 'none';
+        if (matchSearch && matchType) visible++;
     });
     var empty = document.getElementById('noSearchResults');
     if (empty) empty.style.display = (q !== '' && visible === 0) ? 'flex' : 'none';
+}
+
+function filterByType(type) {
+    activeTypeFilter = type;
+    document.querySelectorAll('.filter-type').forEach(function(btn) {
+        btn.classList.toggle('btn-gold', btn.getAttribute('data-filter') === type);
+    });
+    filterStudents();
 }
 
 if (searchInput) {
     searchInput.addEventListener('input', filterStudents);
     searchInput.addEventListener('search', filterStudents);
 }
+/* Set 'All' as active on load */
+filterByType('all');
 </script>
 
 </body>

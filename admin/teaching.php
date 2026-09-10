@@ -77,6 +77,33 @@ $live_requests = $conn->query("
     WHERE lr.status = 'pending'
     ORDER BY lr.created_at ASC
 ");
+
+/* ----------------------
+   Section D: Hafiz Revision Sessions
+---------------------- */
+$hafiz_sessions = null;
+if (db_table_exists($conn, 'hafiz_sessions')) {
+    $hafiz_sessions = $conn->query("
+        SELECT 
+            hs.id AS session_id,
+            hs.student_id,
+            hs.revision_id,
+            hs.page_no,
+            hs.session_type,
+            hs.audio_file,
+            hs.status,
+            hs.submitted_at,
+            u.name AS student_name,
+            u.email AS student_email,
+            hr.cycle_no,
+            hr.current_page
+        FROM hafiz_sessions hs
+        JOIN users u ON u.id = hs.student_id
+        JOIN hafiz_revision hr ON hr.id = hs.revision_id
+        WHERE hs.status = 'pending'
+        ORDER BY hs.submitted_at ASC
+    ");
+}
 ?>
 <!DOCTYPE html>
 <html>
@@ -273,6 +300,79 @@ $live_requests = $conn->query("
         <div class="empty-title">No live recitation requests</div>
         <p class="small" style="margin:0;">Live session requests from students will appear here.</p>
     </div>
+<?php endif; ?>
+
+<!-- =====================
+     Section D: Hafiz Revision Sessions
+===================== -->
+<?php if ($hafiz_sessions): ?>
+<h2 class="mt-3 animate-rise d4" style="display:flex;align-items:center;gap:10px;">
+    <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);">D</span> Hafiz Revision Sessions
+</h2>
+
+<?php if ($hafiz_sessions->num_rows > 0): ?>
+<?php while ($hs = $hafiz_sessions->fetch_assoc()): ?>
+<div class="card animate-rise d4">
+
+    <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
+        <h3 style="margin:0;"><?= htmlspecialchars($hs['student_name']) ?></h3>
+        <span class="small text-muted"><?= htmlspecialchars($hs['student_email']) ?></span>
+    </div>
+
+    <p class="small">
+        <span class="badge badge-green">Page <?= (int)$hs['page_no'] ?></span>
+        &nbsp;· Cycle #<?= (int)$hs['cycle_no'] ?>
+        &nbsp;· <?= $hs['session_type'] === 'live' ? 'Live Session' : 'Audio Recording' ?>
+    </p>
+
+    <?php if ($hs['session_type'] === 'audio' && !empty($hs['audio_file'])): ?>
+        <audio controls src="../uploads/student_audio/<?= htmlspecialchars($hs['audio_file']) ?>"></audio>
+    <?php elseif ($hs['session_type'] === 'live'): ?>
+        <p class="small text-muted" style="margin:4px 0 8px;"><?= ui_icon('video', 14) ?> Live recitation session — student will recite off-head during the scheduled call.</p>
+    <?php endif; ?>
+
+    <form method="POST" action="review_hafiz_session.php" enctype="multipart/form-data" style="margin-top:6px;">
+        <input type="hidden" name="session_id" value="<?= (int)$hs['session_id'] ?>">
+
+        <div class="grid-2">
+            <div class="form-group">
+                <label class="form-label">Rating</label>
+                <select class="form-select" name="rating" required>
+                    <option value="">--Select--</option>
+                    <option>Excellent</option>
+                    <option>Very Good</option>
+                    <option>Good</option>
+                    <option>Fair</option>
+                    <option>Needs Improvement</option>
+                    <option>Fail</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label"><?= ui_icon('mic', 16) ?> Upload Audio Feedback (Optional)</label>
+                <input class="form-input" type="file" name="admin_audio" accept="audio/*">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Feedback / Notes</label>
+            <textarea class="form-textarea" name="feedback"></textarea>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn" type="submit" name="status" value="accepted"><?= ui_icon('check', 16) ?> Accept</button>
+            <button class="btn btn-danger" type="submit" name="status" value="rejected"><?= ui_icon('close', 16) ?> Reject</button>
+        </div>
+    </form>
+
+</div>
+<?php endwhile; ?>
+<?php else: ?>
+    <div class="empty animate-rise d4">
+        <div class="empty-icon"><?= ui_icon('check-circle', 40) ?></div>
+        <div class="empty-title">No pending Hafiz sessions</div>
+        <p class="small" style="margin:0;">Hafiz revision recitations awaiting your review will appear here.</p>
+    </div>
+<?php endif; ?>
 <?php endif; ?>
 
 <?php ui_page_end(); ?>

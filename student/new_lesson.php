@@ -6,6 +6,11 @@ require_role('student');
 
 $student_id = (int)$_SESSION['user_id'];
 
+if (student_is_hafiz($conn, $student_id)) {
+    header("Location: hafiz_revision.php");
+    exit;
+}
+
 $exam_mode = student_in_exam($conn, $student_id);
 $locked    = student_exam_locked($conn, $student_id);
 

@@ -44,6 +44,17 @@ require_role('admin');
                 <input class="form-input" type="password" id="password" name="password" required>
             </div>
 
+            <?php if (db_column_exists($conn, 'users', 'hafiz')): ?>
+            <div class="form-group">
+                <label class="form-label" for="hafiz">Student Type</label>
+                <select class="form-select" id="hafiz" name="hafiz">
+                    <option value="0" selected>Non-Hafiz (Learner)</option>
+                    <option value="1">Hafiz (Revision Mode)</option>
+                </select>
+                <span class="small text-muted">Hafiz students revise from memory instead of learning new material.</span>
+            </div>
+            <?php endif; ?>
+
             <button class="btn btn-block" style="margin-top:6px;">Add Student</button>
         </form>
     </div>

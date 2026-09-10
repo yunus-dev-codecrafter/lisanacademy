@@ -6,6 +6,8 @@ require_once __DIR__ . '/../config/db.php';
 require_role('student');    
 $student_id = (int)$_SESSION['user_id'];
 
+$is_hafiz = student_is_hafiz($conn, $student_id);
+
 $exam_mode      = student_in_exam($conn, $student_id);
 $locked         = student_exam_locked($conn, $student_id);
 $student_access = student_exam_access($conn, $student_id);
@@ -99,6 +101,38 @@ if ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1) {
 <?php endif; ?>
 
 <div class="stat-grid animate-rise d1">
+    <?php if ($is_hafiz): ?>
+    <?php
+    $hafiz_revision = hafiz_get_active_revision($conn, $student_id);
+    $hafiz_current_page = $hafiz_revision ? (int)$hafiz_revision['current_page'] : 1;
+    $hafiz_completed = $hafiz_current_page > 1 ? $hafiz_current_page - 1 : 0;
+    $hafiz_pct = round(($hafiz_completed / 604) * 100);
+    $hafiz_completed_cycles = hafiz_completed_cycles_count($conn, $student_id);
+    ?>
+    <a class="stat-card stat-green" href="hafiz_revision.php">
+        <span class="stat-ico"><?= ui_icon('book', 20) ?></span>
+        <span class="stat-label">Qur'an Revision</span>
+        <span class="stat-value"><?=$hafiz_completed?> <span class="small text-muted">/ 604 pages</span></span>
+        <div class="progress" style="margin-top:10px;">
+            <div class="progress-fill" style="width:<?=$hafiz_pct?>%"></div>
+            <div class="progress-text"><?=$hafiz_pct?>%</div>
+        </div>
+    </a>
+    <div class="stat-card stat-gold">
+        <span class="stat-ico"><?= ui_icon('chat', 20) ?></span>
+        <span class="stat-label">New Feedback</span>
+        <span class="stat-value"><?=$feedbackCount?></span>
+        <span class="stat-sub">Review from your teacher</span>
+    </div>
+    <?php if ($hafiz_completed_cycles > 0): ?>
+    <div class="stat-card stat-blue">
+        <span class="stat-ico"><?= ui_icon('trophy', 20) ?></span>
+        <span class="stat-label">Completed Cycles</span>
+        <span class="stat-value"><?=$hafiz_completed_cycles?></span>
+        <span class="stat-sub">Daurah cycles finished</span>
+    </div>
+    <?php endif; ?>
+    <?php else: ?>
     <a class="stat-card stat-green" href="my_learning.php">
         <span class="stat-ico"><?= ui_icon('book', 20) ?></span>
         <span class="stat-label">Surahs Completed</span>
@@ -120,6 +154,7 @@ if ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1) {
         <span class="stat-value"><?=$announcementCount?></span>
         <span class="stat-sub">Unread updates</span>
     </div>
+    <?php endif; ?>
 </div>
 
 <!-- =====================  
@@ -207,7 +242,7 @@ if ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1) {
 <?php endif; ?>
 
 <div class="grid-2">
-    <?php if ($done > 0): ?>
+    <?php if (!$is_hafiz && $done > 0): ?>
     <a class="action-card action-gold animate-rise d3" href="certificate.php">
         <span class="ac-ico"><?= ui_icon('gem') ?></span>
         <span class="ac-title">Certificate</span>
@@ -224,14 +259,22 @@ if ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1) {
         <span class="ac-title">Announcements <?php if($announcementCount > 0): ?><span class="badge badge-count"><?=$announcementCount?></span><?php endif; ?></span>
         <span class="ac-sub">Latest updates</span>
     </a>
+    <?php if ($is_hafiz): ?>
+    <a class="action-card action-gold animate-rise d4" href="hafiz_revision.php">
+        <span class="ac-ico"><?= ui_icon('book') ?></span>
+        <span class="ac-title">Qur'an Revision</span>
+        <span class="ac-sub">Continue your page revision</span>
+    </a>
+    <?php else: ?>
     <a class="action-card action-gold animate-rise d4" href="my_learning.php">
         <span class="ac-ico"><?= ui_icon('book') ?></span>
         <span class="ac-title">My Learning</span>
         <span class="ac-sub">Track your current surah</span>
     </a>
+    <?php endif; ?>
     <a class="action-card action-blue animate-rise d4" href="feedback.php">
         <span class="ac-ico"><?= ui_icon('chat') ?></span>
-        <span class="ac-title">Admin’s Feedback <?php if($feedbackCount > 0): ?><span class="badge badge-count"><?=$feedbackCount?></span><?php endif; ?></span>
+        <span class="ac-title">Admin's Feedback <?php if($feedbackCount > 0): ?><span class="badge badge-count"><?=$feedbackCount?></span><?php endif; ?></span>
         <span class="ac-sub">View teacher feedback</span>
     </a>
 </div>

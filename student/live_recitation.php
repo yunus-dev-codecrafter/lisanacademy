@@ -5,6 +5,11 @@ require_once __DIR__ . '/../config/db.php';
 
 require_role('student');
 
+if (student_is_hafiz($conn, (int)($_SESSION['user_id'] ?? 0))) {
+    header("Location: hafiz_revision.php");
+    exit;
+}
+
 if (student_in_exam($conn, (int)($_SESSION['user_id'] ?? 0))) {
     header("Location: exam.php");
     exit;

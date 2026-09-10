@@ -17,6 +17,7 @@ $name  = trim($_POST['name']);
 $email = trim($_POST['email']);
 $pass  = $_POST['password'];
 $phone = trim($_POST['phone'] ?? '');
+$hafiz = (int)($_POST['hafiz'] ?? 0);
 
 /* check email uniqueness */
 $stmt = $conn->prepare("SELECT id FROM users WHERE email = ?");
@@ -33,7 +34,15 @@ $hashed = password_hash($pass, PASSWORD_DEFAULT);
 
 /* insert student */
 $has_phone = db_column_exists($conn, 'users', 'phone');
-if ($has_phone) {
+$has_hafiz = db_column_exists($conn, 'users', 'hafiz');
+
+if ($has_phone && $has_hafiz) {
+    $stmt = $conn->prepare("
+        INSERT INTO users (name, email, phone, password, role, device_type, suspended, blocked, hafiz)
+        VALUES (?, ?, ?, ?, 'student', 'iphone', 0, 0, ?)
+    ");
+    $stmt->bind_param("sssii", $name, $email, $phone, $hashed, $hafiz);
+} elseif ($has_phone) {
     $stmt = $conn->prepare("
         INSERT INTO users (name, email, phone, password, role, device_type, suspended, blocked)
         VALUES (?, ?, ?, ?, 'student', 'iphone', 0, 0)
@@ -48,6 +57,19 @@ if ($has_phone) {
 }
 $stmt->execute();
 $new_student_id = (int)$conn->insert_id;
+
+/* If student is Hafiz, create first revision cycle */
+if ($hafiz === 1 && $new_student_id > 0 && db_table_exists($conn, 'hafiz_revision')) {
+    try {
+        $now = date('Y-m-d H:i:s');
+        $ins = $conn->prepare("
+            INSERT INTO hafiz_revision (student_id, cycle_no, current_page, week_started_at, status, started_at)
+            VALUES (?, 1, 1, ?, 'active', ?)
+        ");
+        $ins->bind_param("iss", $new_student_id, $now, $now);
+        $ins->execute();
+    } catch (Throwable $e) { /* ignore */ }
+}
 
 /* Referral link: if this new student's phone matches a pending friend invite,
    mark that invite as 'joined' (the friend has now registered). */
