@@ -31,7 +31,6 @@ if (!$revision) {
     $pages_this_week = 0;
     $pages_remaining = 20;
     $completed_cycles = hafiz_completed_cycles_count($conn, $student_id);
-    $pending_session = null;
     $recent_sessions = [];
     $test_summary = ['state' => 'locked', 'reason' => '', 'test' => null, 'deadline' => null, 'started_at' => null, 'question_count' => 0];
 } else {
@@ -51,13 +50,6 @@ if (!$revision) {
     $can_check = hafiz_can_recite($conn, $student_id);
     $can_recite = $can_check['ok'];
     $can_recite_reason = $can_check['reason'];
-
-    // Get pending session if any
-    $pending_session = null;
-    $stmt = $conn->prepare("SELECT * FROM hafiz_sessions WHERE student_id = ? AND status = 'pending' LIMIT 1");
-    $stmt->bind_param("i", $student_id);
-    $stmt->execute();
-    $pending_session = $stmt->get_result()->fetch_assoc();
 
     // Recent sessions
     $stmt = $conn->prepare("
@@ -227,12 +219,7 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
         <h3 style="margin:0;"><?= ui_icon('book-open', 18) ?> Next Page to Recite</h3>
     </div>
 
-    <?php if ($pending_session): ?>
-        <div class="alert alert-info" style="margin:0;">
-            <?= ui_icon('clock', 16) ?>
-            <span style="flex:1;">You have a pending recitation for <strong>Page <?= (int)$pending_session['page_no'] ?></strong> awaiting teacher review. Please wait.</span>
-        </div>
-    <?php elseif ($can_recite): ?>
+    <?php if ($can_recite): ?>
         <div style="text-align:center;padding:20px 0;">
             <div style="font-size:2.5rem;font-weight:800;color:var(--emerald-700);margin-bottom:8px;">Page <?= $current_page ?></div>
             <p class="small text-muted" style="margin:0 0 16px;">Click below to start reciting this page from memory.</p>
@@ -282,7 +269,7 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
         <span class="small"><span class="page-cell page-done" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Completed</span>
         <span class="small"><span class="page-cell page-current" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Current</span>
-        <span class="small"><span class="page-cell page-locked" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Locked</span>
+        <span class="small"><span class="page-cell page-locked" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Not recited yet</span>
     </div>
 </div>
 

@@ -118,6 +118,7 @@ if ($action === 'audio') {
         ");
         $stmt->bind_param("iiiss", $student_id, $revision_id, $page_no, $filename, $now);
         $stmt->execute();
+        hafiz_advance_page($conn, $revision_id);
         echo 'OK';
         exit;
     } else {
@@ -145,6 +146,7 @@ if ($action === 'live') {
     ");
     $stmt->bind_param("iiis", $student_id, $revision_id, $page_no, $now);
     $stmt->execute();
+    hafiz_advance_page($conn, $revision_id);
 
     // Build WhatsApp message
     $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');

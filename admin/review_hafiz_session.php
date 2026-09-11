@@ -71,10 +71,8 @@ if ($admin_audio) {
 }
 $stmt->execute();
 
-// If accepted, advance page
+// If accepted, keep the weekly log up to date
 if ($status === 'accepted') {
-    $result = hafiz_advance_page($conn, $revision_id);
-
     // Update weekly log
     if (db_table_exists($conn, 'hafiz_weekly_log')) {
         $revision = null;

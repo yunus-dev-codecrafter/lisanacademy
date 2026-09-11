@@ -1178,7 +1178,9 @@ if (!function_exists('hafiz_current_week_no')) {
 
 if (!function_exists('hafiz_pages_this_week')) {
     /**
-     * Count of accepted hafiz_sessions for the given week in the given cycle.
+     * Count of hafiz_sessions recited (submitted) for the given week in the
+     * given cycle, regardless of review status. Used to enforce the
+     * 21-recitations-per-week maximum.
      */
     function hafiz_pages_this_week($conn, $revision_id, $week_no) {
         $revision_id = (int)$revision_id;
@@ -1191,7 +1193,7 @@ if (!function_exists('hafiz_pages_this_week')) {
         try {
             $stmt = $conn->prepare("
                 SELECT COUNT(*) c FROM hafiz_sessions
-                WHERE revision_id = ? AND page_no >= ? AND page_no <= ? AND status = 'accepted'
+                WHERE revision_id = ? AND page_no >= ? AND page_no <= ?
             ");
             $stmt->bind_param("iii", $revision_id, $from_page, $to_page);
             $stmt->execute();
@@ -1399,28 +1401,11 @@ if (!function_exists('hafiz_can_recite')) {
             return ['ok' => false, 'reason' => 'You have completed this revision cycle! Masha\'Allah!'];
         }
 
-        // Check for pending session
-        if (db_table_exists($conn, 'hafiz_sessions')) {
-            try {
-                $stmt = $conn->prepare("SELECT id FROM hafiz_sessions WHERE student_id = ? AND status = 'pending' LIMIT 1");
-                $stmt->bind_param("i", $student_id);
-                $stmt->execute();
-                if ($stmt->get_result()->fetch_assoc()) {
-                    return ['ok' => false, 'reason' => 'You already have a pending recitation awaiting review. Please wait for your teacher to review it.'];
-                }
-            } catch (Throwable $e) { /* ignore */ }
-        }
-
-        // Check weekly max (21 pages)
+        // Weekly maximum: 21 recitations per week. No other restriction.
         $week_no = hafiz_current_week_no($revision);
         $pages = hafiz_pages_this_week($conn, (int)$revision['id'], $week_no);
         if ($pages >= 21) {
             return ['ok' => false, 'reason' => 'You have reached the weekly maximum of 21 pages. Well done! Wait for next week.'];
-        }
-
-        // Check weekly test gate (once 20 pages are met, test must pass)
-        if (hafiz_week_test_block_recite($conn, $revision)) {
-            return ['ok' => false, 'reason' => 'Your weekly test must be passed before you can continue reciting. Please visit the Weekly Test page.'];
         }
 
         // Check week transition
@@ -1658,16 +1643,38 @@ if (!function_exists('hafiz_accepted_pages')) {
     }
 }
 
+if (!function_exists('hafiz_recited_pages')) {
+    /**
+     * Ordered list of page numbers recited (submitted) so far in the given
+     * revision cycle, regardless of review status.
+     */
+    function hafiz_recited_pages($conn, $revision_id) {
+        $revision_id = (int)$revision_id;
+        if (!db_table_exists($conn, 'hafiz_sessions')) return [];
+        try {
+            $stmt = $conn->prepare("SELECT DISTINCT page_no FROM hafiz_sessions WHERE revision_id = ? ORDER BY page_no ASC");
+            $stmt->bind_param("i", $revision_id);
+            $stmt->execute();
+            $out = [];
+            $rows = $stmt->get_result();
+            while ($r = $rows->fetch_assoc()) $out[] = (int)$r['page_no'];
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+}
+
 if (!function_exists('hafiz_generate_questions')) {
     /**
      * Build up to $count random verse-window questions (each >= 10 verses)
-     * from the surahs covered by the student's accepted pages.
+     * from the surahs covered by the student's recited pages.
      * Returns a list of ['page_no','surah_id','from_verse','to_verse'].
      */
     function hafiz_generate_questions($conn, $revision_id, $count = 3) {
         $count = (int)$count;
         if ($count <= 0) return [];
-        $pages = hafiz_accepted_pages($conn, $revision_id);
+        $pages = hafiz_recited_pages($conn, $revision_id);
         if (!$pages) return [];
 
         // Gather candidate (surah, from, to) windows of >= 10 verses from accepted pages.
