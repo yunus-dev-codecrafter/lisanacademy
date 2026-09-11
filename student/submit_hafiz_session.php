@@ -14,23 +14,6 @@ csrf_verify();
 
 $action = $_POST['action'] ?? '';
 
-/* Handle skip request */
-if ($action === 'request_skip') {
-    if (!db_table_exists($conn, 'hafiz_revision')) {
-        redirect('hafiz_revision.php');
-    }
-
-    $revision = hafiz_get_active_revision($conn, $student_id);
-    if ($revision) {
-        $stmt = $conn->prepare("UPDATE hafiz_revision SET skip_approved = 0 WHERE id = ?");
-        $rid = (int)$revision['id'];
-        $stmt->bind_param("i", $rid);
-        $stmt->execute();
-    }
-    echo 'OK';
-    exit;
-}
-
 /* Handle new cycle start */
 if ($action === 'start_new_cycle') {
     if (!db_table_exists($conn, 'hafiz_revision')) {
@@ -41,8 +24,9 @@ if ($action === 'start_new_cycle') {
     if ($revision) {
         // Complete the current cycle first
         $rid = (int)$revision['id'];
-        $conn->prepare("UPDATE hafiz_revision SET status = 'completed', completed_at = NOW() WHERE id = ?")->bind_param("i", $rid);
-        $conn->execute();
+        $stmt = $conn->prepare("UPDATE hafiz_revision SET status = 'completed', completed_at = NOW() WHERE id = ?");
+        $stmt->bind_param("i", $rid);
+        $stmt->execute();
     }
 
     // Create new cycle

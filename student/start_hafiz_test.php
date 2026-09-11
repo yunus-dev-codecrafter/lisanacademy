@@ -28,13 +28,16 @@ if (!$revision) {
     exit;
 }
 
-// Only allowed once the weekly quota (20 pages) is met and the week is not skipped
-if (!hafiz_week_test_qualified($conn, $revision)) {
-    ui_message_page('warning', 'Test Locked', 'The weekly test becomes available after you recite 20 pages this week.', 'hafiz_revision.php', 'Hafiz Revision', 'close');
+// The weekly test unlocks once every page of the current juz is accepted by
+// the teacher. Generation is only allowed when no test is in progress or under
+// review (available / failed / expired).
+$test_state = hafiz_week_test_state($conn, $revision);
+if (!in_array($test_state['state'], ['available', 'failed', 'expired'], true)) {
+    ui_message_page('warning', 'Test Locked', 'The weekly test unlocks once every page of your current Juz is accepted and approved by your teacher.', 'hafiz_revision.php', 'Hafiz Revision', 'close');
     exit;
 }
 
-$test = hafiz_create_weekly_test($conn, $student_id, $revision, 3);
+$test = hafiz_create_weekly_test($conn, $student_id, $revision, 4);
 if (!$test) {
     ui_message_page('danger', 'Could Not Start', 'We could not generate a weekly test. Please ensure you have completed revision pages to draw questions from.', 'hafiz_test.php', 'Weekly Test', 'close');
     exit;

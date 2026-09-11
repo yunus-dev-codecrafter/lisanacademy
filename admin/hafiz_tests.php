@@ -58,7 +58,7 @@ while ($cr = $cres->fetch_assoc()) $counts[$cr['status']] = (int)$cr['c'];
 
 <div class="page-hero animate-rise">
     <h1><?= ui_icon('calendar-check', 24) ?> Hafiz Weekly Tests</h1>
-    <p>Every week, once a Hafiz student recites their 20 pages, they take a 3-question test on completed revision. Listen to the recordings and mark Pass or Fail.</p>
+    <p>Once a Hafiz student completes a Juz (every page approved by the teacher), they take a 4-question test on their completed revision. Listen to the recordings and mark Pass or Fail.</p>
 </div>
 
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
@@ -76,7 +76,7 @@ while ($cr = $cres->fetch_assoc()) $counts[$cr['status']] = (int)$cr['c'];
             <thead>
                 <tr>
                     <th>Student</th>
-                    <th>Week</th>
+                    <th>Juz</th>
                     <th>Status</th>
                     <th>Questions</th>
                     <th>Started</th>
@@ -94,7 +94,7 @@ while ($cr = $cres->fetch_assoc()) $counts[$cr['status']] = (int)$cr['c'];
                             <strong><?= htmlspecialchars($t['student_name']) ?></strong>
                             <div class="small text-muted"><?= htmlspecialchars($t['student_email']) ?></div>
                         </td>
-                        <td><span class="badge badge-blue">Week <?= (int)$t['week_no'] ?></span></td>
+                        <td><span class="badge badge-blue">Juz <?= (int)$t['week_no'] ?></span></td>
                         <td>
                             <?php if ($t['status'] === 'passed'): ?>
                                 <span class="badge badge-green">Passed</span>

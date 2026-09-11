@@ -22,27 +22,52 @@ $week_transition = hafiz_check_week_transition($conn, $student_id);
 /* Fetch active revision */
 $revision = hafiz_get_active_revision($conn, $student_id);
 
+/* Self-heal: never leave the pointer behind a page that was already recorded.
+   Repairs stuck states (e.g. current_page still 2 with a page-2 row existing). */
+if ($revision && db_table_exists($conn, 'hafiz_sessions')) {
+    try {
+        $rid = (int)$revision['id'];
+        $stmt = $conn->prepare("SELECT MAX(page_no) m FROM hafiz_sessions WHERE revision_id = ?");
+        $stmt->bind_param("i", $rid);
+        $stmt->execute();
+        $max_recited = (int)($stmt->get_result()->fetch_assoc()['m'] ?? 0);
+        if ($max_recited >= (int)$revision['current_page']) {
+            $new_page = min($max_recited + 1, 605);
+            $upd = $conn->prepare("UPDATE hafiz_revision SET current_page = ? WHERE id = ?");
+            $upd->bind_param("ii", $new_page, $rid);
+            $upd->execute();
+            if ($new_page >= 605) {
+                $upd = $conn->prepare("UPDATE hafiz_revision SET status = 'completed', completed_at = NOW() WHERE id = ? AND status <> 'completed'");
+                $upd->bind_param("i", $rid);
+                $upd->execute();
+            }
+            $revision['current_page'] = $new_page;
+        }
+    } catch (Throwable $e) {
+        error_log('hafiz self-heal failed: ' . $e->getMessage());
+    }
+}
+
 if (!$revision) {
     // No active revision — this shouldn't happen for a Hafiz, but handle gracefully
     $can_recite = false;
     $can_recite_reason = 'You do not have an active revision cycle. Please contact the admin.';
     $current_page = 1;
     $required_page = 1;
-    $week_no = 1;
-    $pages_this_week = 0;
-    $pages_remaining = 20;
+    $juz_no = 1;
+    $this_week_pages = 0;
+    $weekly_remaining = 24;
     $completed_cycles = hafiz_completed_cycles_count($conn, $student_id);
     $recent_sessions = [];
     $test_summary = ['state' => 'locked', 'reason' => '', 'test' => null, 'deadline' => null, 'started_at' => null, 'question_count' => 0];
 } else {
     $current_page = (int)$revision['current_page'];
     $required_page = hafiz_required_page($conn, $revision);
-    $week_no = hafiz_current_week_no($revision);
+    $juz_no = hafiz_current_week_no($revision);
     $revision_id = (int)$revision['id'];
 
-    $pages_this_week = hafiz_pages_this_week($conn, $revision_id, $week_no);
-    $pages_remaining = max(0, 20 - $pages_this_week);
-    $weekly_remaining = max(0, 21 - $pages_this_week);
+    $this_week_pages = hafiz_pages_this_week($conn, $revision_id);
+    $weekly_remaining = max(0, 24 - $this_week_pages);
     $completed_cycles = hafiz_completed_cycles_count($conn, $student_id);
 
     // Weekly test summary (smoothed for display below)
@@ -94,6 +119,30 @@ if ($revision) {
 }
 $failed_page_nos = array_keys($failed_pages);
 
+/* Juz progress summary for the strip + weekly block */
+$juz_range = hafiz_juz_range($juz_no);
+$juz_totals = [];
+for ($j = 1; $j <= 30; $j++) $juz_totals[$j] = hafiz_juz_total_pages($j);
+$juz_accepted = array_fill(1, 30, 0);
+$juz_passed = [];
+$juz_progress = ['accepted' => 0, 'total' => $juz_range[1] - $juz_range[0] + 1];
+if ($revision) {
+    foreach ($page_status as $pn => $st) {
+        if ($st === 'accepted') $juz_accepted[hafiz_juz_of_page($pn)]++;
+    }
+    $juz_progress = ['accepted' => $juz_accepted[$juz_no], 'total' => $juz_totals[$juz_no]];
+    if (db_table_exists($conn, 'hafiz_weekly_tests')) {
+        try {
+            $stmt = $conn->prepare("SELECT week_no, status FROM hafiz_weekly_tests WHERE revision_id = ? AND status = 'passed'");
+            $stmt->bind_param("i", $revision_id);
+            $stmt->execute();
+            while ($tr = $stmt->get_result()->fetch_assoc()) $juz_passed[(int)$tr['week_no']] = true;
+        } catch (Throwable $e) { /* ignore */ }
+    }
+}
+$juz_test_blocked = $revision ? hafiz_week_test_block_recite($conn, $revision) : false;
+$juz_gate_reason = $juz_test_blocked ? hafiz_juz_gate($conn, $revision)['reason'] : '';
+
 // WhatsApp number for live recitation
 $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
 ?>
@@ -112,12 +161,42 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
     <p>Recite from memory, page by page.</p>
 </div>
 
-<?php if ($week_transition['action'] === 'reset'): ?>
-<div class="alert alert-danger animate-rise">
-    <?= ui_icon('alert', 18) ?>
-    <span style="flex:1;"><strong>Weekly target not met.</strong> Your progress has been reset to page 1. Start your revision cycle again.</span>
+<!-- Juz Path -->
+<?php if ($revision): ?>
+<div class="card animate-rise d1">
+    <div class="card-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <h3 style="margin:0;"><?= ui_icon('grid', 18) ?> Juz Path</h3>
+        <span class="small text-muted">Tap a juz below to see your progress on the grid.</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px 0;">
+        <?php for ($j = 1; $j <= 30; $j++):
+            $ac = $juz_accepted[$j] ?? 0;
+            $tot = $juz_totals[$j];
+            if (!empty($juz_passed[$j])) {
+                $jcls = 'juz-chip juz-complete';
+                $jtitle = "Juz $j — all $tot pages accepted, test passed ✓";
+            } elseif ($j === $juz_no) {
+                $jcls = 'juz-chip juz-current';
+                $jtitle = "Juz $j — current juz, $ac/$tot accepted so far";
+            } else {
+                $jcls = 'juz-chip juz-locked';
+                $jtitle = "Juz $j — not reached yet";
+            }
+        ?>
+            <div class="<?= $jcls ?>" title="<?= $jtitle ?>">
+                <span class="juz-num"><?= $j ?></span>
+                <span class="juz-meta"><?= $ac ?>/<?= $tot ?></span>
+            </div>
+        <?php endfor; ?>
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">
+        <span class="small"><span class="juz-chip juz-complete" style="display:inline-flex;width:36px;height:36px;font-size:.6rem;padding:0;justify-content:center;">✓</span> Passed</span>
+        <span class="small"><span class="juz-chip juz-current" style="display:inline-flex;width:36px;height:36px;font-size:.6rem;padding:0;justify-content:center;">—</span> Current</span>
+        <span class="small"><span class="juz-chip juz-locked" style="display:inline-flex;width:36px;height:36px;font-size:.6rem;padding:0;justify-content:center;">—</span> Locked</span>
+    </div>
 </div>
 <?php endif; ?>
+<!-- /Juz Path -->
 
 <?php if ($revision && $current_page > 604): ?>
 <div class="card card-gold animate-rise" style="text-align:center;">
@@ -151,8 +230,8 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
             <div class="small text-muted">Overall Progress</div>
         </div>
         <div class="panel" style="margin:0;text-align:center;">
-            <div style="font-family:var(--font-display);font-weight:800;font-size:1.25rem;color:var(--emerald-800);"><?= $week_no ?> / 30</div>
-            <div class="small text-muted">Week Number</div>
+            <div style="font-family:var(--font-display);font-weight:800;font-size:1.25rem;color:var(--emerald-800);"><?= $juz_no ?> / 30</div>
+            <div class="small text-muted">Current Juz</div>
         </div>
     </div>
 
@@ -161,22 +240,17 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
         <div class="progress-text"><?=$progress_pct?>%</div>
     </div>
 
-    <!-- Weekly Progress -->
+    <!-- Weekly + Juz Progress -->
     <div style="margin-top:14px;padding:12px;background:var(--panel-bg);border-radius:var(--radius);border:1px solid var(--border);">
         <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
-            <strong>Week <?= $week_no ?> Target</strong>
+            <strong>Juz <?= $juz_no ?> · Pages <?= $juz_range[0] ?>–<?= $juz_range[1] ?></strong>
             <span class="small text-muted">Week ends: Friday 11:59 PM (<?= $hours_until_friday ?>h left)</span>
         </div>
         <div style="display:flex;gap:16px;flex-wrap:wrap;">
-            <span class="small"><strong><?= $pages_this_week ?></strong> / 20 pages this week</span>
-            <span class="small <?= $pages_remaining > 0 ? 'text-muted' : 'badge badge-green' ?>">
-                <?= $pages_remaining > 0 ? $pages_remaining . ' more needed' : 'Target met!' ?>
-            </span>
+            <span class="small"><strong><?= $this_week_pages ?></strong> / 24 pages this week</span>
             <span class="small text-muted">You can do <?= $weekly_remaining ?> more this week</span>
+            <span class="small">Juz <?= $juz_no ?>: <strong><?= $juz_progress['accepted'] ?> / <?= $juz_progress['total'] ?></strong> pages accepted</span>
         </div>
-        <?php if ($revision && (int)$revision['skip_approved']): ?>
-            <div class="small" style="margin-top:8px;color:var(--emerald-700);"><?= ui_icon('check-circle', 14) ?> Admin has approved you to skip this week.</div>
-        <?php endif; ?>
     </div>
 </div>
 
@@ -184,7 +258,7 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
 <?php if ($revision && hafiz_week_test_qualified($conn, $revision)): ?>
 <div class="card animate-rise d1" style="border:1px solid var(--gold-300, #fbbf24);">
     <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-        <h3 style="margin:0;"><?= ui_icon('calendar-check', 18) ?> Weekly Test — Week <?= $week_no ?></h3>
+        <h3 style="margin:0;"><?= ui_icon('calendar-check', 18) ?> Weekly Test — Juz <?= $juz_no ?></h3>
         <?php if ($test_summary['state'] === 'passed'): ?>
             <span class="badge badge-green"><?= ui_icon('check-circle', 13) ?> Passed</span>
         <?php elseif ($test_summary['state'] === 'pending'): ?>
@@ -222,6 +296,14 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
 <?php endif; ?>
 
 <!-- Current Page Card -->
+<?php if ($juz_test_blocked): ?>
+<div class="alert alert-info animate-rise d1" style="margin:0 0 14px;">
+    <?= ui_icon('calendar-check', 18) ?>
+    <span style="flex:1;"><?= htmlspecialchars($juz_gate_reason) ?> You can continue reciting the next juz once your teacher approves Juz <?= $juz_no - 1 ?> and you pass its weekly test.</span>
+    <a class="btn btn-gold btn-sm" href="hafiz_test.php"><?= ui_icon('bolt', 15) ?> Go to Weekly Test</a>
+</div>
+<?php endif; ?>
+
 <div class="card animate-rise d2">
     <div class="card-title">
         <h3 style="margin:0;"><?= ui_icon('book-open', 18) ?> Next Page to Recite</h3>
@@ -293,21 +375,6 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
         <span class="small"><span class="page-cell page-locked" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Not recited yet</span>
     </div>
 </div>
-
-<!-- Skip Week Request -->
-<?php if ($revision && !$revision['skip_approved'] && $pages_this_week < 20): ?>
-<div class="card animate-rise d4">
-    <div class="card-title">
-        <h3 style="margin:0;"><?= ui_icon('alert', 18) ?> Request to Skip This Week</h3>
-    </div>
-    <p class="small text-muted" style="margin:0 0 12px;">If you cannot meet the 20-page weekly target, you can request admin approval to skip. Without approval, missing the weekly target will reset your progress.</p>
-    <form method="POST" action="submit_hafiz_session.php">
-        <?= csrf_field() ?>
-        <input type="hidden" name="action" value="request_skip">
-        <button class="btn btn-danger" type="submit" onclick="return confirm('Are you sure you want to request to skip this week?');"><?= ui_icon('alert', 16) ?> Request Week Skip</button>
-    </form>
-</div>
-<?php endif; ?>
 
 <!-- Recent Sessions -->
 <?php if (!empty($recent_sessions)): ?>
@@ -390,6 +457,35 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
 </div>
 
 <style>
+.juz-chip {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 58px;
+    height: 48px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    gap: 2px;
+}
+.juz-chip .juz-num { font-weight: 800; font-size: .85rem; line-height: 1; }
+.juz-chip .juz-meta { font-size: .6rem; opacity: .85; line-height: 1; }
+.juz-complete {
+    background: var(--emerald-100, #d1fae5);
+    color: var(--emerald-700, #047857);
+    border-color: var(--emerald-300, #6ee7b7);
+}
+.juz-current {
+    background: var(--gold-light, #fef3c7);
+    color: var(--gold-deep, #b45309);
+    border-color: var(--gold-300, #fbbf24);
+    animation: pulse 2s infinite;
+    font-weight: 800;
+}
+.juz-locked {
+    background: var(--panel-bg, #f9fafb);
+    color: var(--text-muted, #9ca3af);
+}
 .page-cell {
     width: 36px;
     height: 36px;

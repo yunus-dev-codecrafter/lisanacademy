@@ -29,7 +29,7 @@ if (!$revision) {
 $state = hafiz_week_test_state($conn, $revision);
 $mode = $state['state'];
 $test = $state['test'];
-$week_no = hafiz_current_week_no($revision);
+$juz_no = hafiz_current_week_no($revision);
 
 /* Question rows for in-progress / pending / passed / failed states */
 $questions = [];
@@ -52,8 +52,8 @@ $seconds_left = $deadline_ts > 0 ? max(0, $deadline_ts - $now_ts) : 0;
 <?php ui_page_start('student', 'dashboard', 'Weekly Test', 'Hafiz Revision'); ?>
 
 <div class="page-hero animate-rise">
-    <h1><?= ui_icon('calendar-check', 24) ?> Weekly Test — Week <?= $week_no ?></h1>
-    <p class="text-muted" style="margin:6px 0 0;">Every week, after reciting 20 pages, you take a short test on pages you've completed. 3 questions, <?= $ti['time_limit'] ?> minutes plus <?= $ti['grace'] ?> minutes grace. Pass to continue, fail to retake.</p>
+    <h1><?= ui_icon('calendar-check', 24) ?> Weekly Test — Juz <?= $juz_no ?></h1>
+    <p class="text-muted" style="margin:6px 0 0;">After completing each Juz, you take a short test on the pages you've completed. 4 questions, <?= $ti['time_limit'] ?> minutes plus <?= $ti['grace'] ?> minutes grace. Pass to continue, fail to retake.</p>
 </div>
 
 <?php if ($mode === 'locked'): ?>
@@ -66,9 +66,9 @@ $seconds_left = $deadline_ts > 0 ? max(0, $deadline_ts - $now_ts) : 0;
 <?php elseif ($mode === 'available'): ?>
     <div class="card animate-rise d1" style="max-width:640px;">
         <div class="card-title"><h3 style="margin:0;"><?= ui_icon('play', 18) ?> Ready When You Are</h3></div>
-        <p class="small text-muted" style="margin:0 0 6px;">You've met this week's 20-page target. Generate your test now.</p>
+        <p class="small text-muted" style="margin:0 0 6px;">You have completed this Juz — every page has been approved by your teacher. Generate your test now.</p>
         <ul class="small" style="margin:0 0 14px;padding-left:20px;">
-            <li><strong>3 questions</strong>, each a passage of at least 10 verses from a surah you've already revised.</li>
+            <li><strong>4 questions</strong>, each a passage of at least 10 verses from a surah you've already revised.</li>
             <li>Questions stay <strong>hidden until you click Generate</strong> — the timer starts immediately.</li>
             <li>You have <strong><?= $ti['time_limit'] ?> minutes</strong> to answer, with a <strong><?= $ti['grace'] ?>-minute grace</strong> to submit.</li>
             <li>If the time runs out before you submit, you <strong>start over</strong> with new random questions.</li>
@@ -383,7 +383,7 @@ function render_test_questions_readonly($questions, $test) {
         $html .= '</div>';
     }
     if ($test && !empty($test['admin_feedback'])) {
-        $html .= '<div class="panel">' . ui_icon('comment', 14) . ' <strong>Teacher’s feedback:</strong><br>' . nl2br(htmlspecialchars($test['admin_feedback'])) . '</div>';
+        $html .= '<div class="panel">' . ui_icon('chat', 14) . ' <strong>Teacher’s feedback:</strong><br>' . nl2br(htmlspecialchars($test['admin_feedback'])) . '</div>';
     }
     if ($test && !empty($test['admin_audio_file'])) {
         $html .= '<div class="panel">' . ui_icon('mic', 14) . ' <strong>Teacher’s audio notes:</strong><br>'

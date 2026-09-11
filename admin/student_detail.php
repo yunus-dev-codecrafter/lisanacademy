@@ -98,27 +98,28 @@ $surahs = $conn->query("SELECT id, name_en FROM surahs ORDER BY id");
         <label class="form-label">Hafiz Revision Progress</label>
         <?php if ($rev): ?>
             <?php
-            $week_no = hafiz_current_week_no($rev);
-            $pages = hafiz_pages_this_week($conn, (int)$rev['id'], $week_no);
+            $juz_no = hafiz_current_week_no($rev);
+            $pages = hafiz_pages_this_week($conn, (int)$rev['id']);
+            $juz_p = hafiz_juz_progress($conn, (int)$rev['id'], $juz_no);
+            $juz_test = hafiz_get_latest_test($conn, (int)$rev['id'], $juz_no);
             ?>
             <div class="panel" style="margin:0;">
-                <p class="small" style="margin:0 0 8px;"><strong>Cycle #<?= (int)$rev['cycle_no'] ?></strong> · Week <?= $week_no ?> · Page <?= (int)$rev['current_page'] ?> / 604</p>
-                <p class="small" style="margin:0 0 8px;">This week: <?= $pages ?> / 20 pages · <?php echo (int)$rev['skip_approved'] ? '<span style="color:var(--emerald-700);">Skip approved</span>' : 'No skip approval'; ?></p>
+                <p class="small" style="margin:0 0 8px;"><strong>Cycle #<?= (int)$rev['cycle_no'] ?></strong> · Juz <?= $juz_no ?> · Page <?= (int)$rev['current_page'] ?> / 604</p>
+                <p class="small" style="margin:0 0 8px;">This week: <?= $pages ?> / 24 pages · Juz <?= $juz_no ?> accepted: <?= $juz_p['accepted'] ?>/<?= $juz_p['total'] ?> pages</p>
+                <?php if ($juz_test): ?>
+                    <p class="small" style="margin:0 0 8px;">Juz <?= $juz_no ?> test:
+                        <?php if ($juz_test['status'] === 'passed'): ?>
+                            <span style="color:var(--emerald-700);">Passed</span>
+                        <?php elseif ($juz_test['status'] === 'submitted'): ?>
+                            <span style="color:var(--gold-deep);">Awaiting review</span>
+                        <?php elseif ($juz_test['status'] === 'failed'): ?>
+                            <span style="color:var(--danger);">Failed — retake required</span>
+                        <?php else: ?>
+                            <?= ucfirst($juz_test['status']) ?>
+                        <?php endif; ?>
+                    </p>
+                <?php endif; ?>
                 <p class="small" style="margin:0;"><strong>Completed cycles:</strong> <?= $completed_cycles ?></p>
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-                <form method="POST" action="approve_hafiz_skip.php" style="display:inline;">
-                    <input type="hidden" name="student_id" value="<?=$student_id?>">
-                    <?php if ((int)$rev['skip_approved']): ?>
-                        <input type="hidden" name="action" value="revoke">
-                        <?= csrf_field() ?>
-                        <button class="btn btn-sm btn-danger" type="submit"><?= ui_icon('close', 14) ?> Revoke Skip Approval</button>
-                    <?php else: ?>
-                        <input type="hidden" name="action" value="approve">
-                        <?= csrf_field() ?>
-                        <button class="btn btn-sm" type="submit"><?= ui_icon('check', 14) ?> Approve Weekly Skip</button>
-                    <?php endif; ?>
-                </form>
             </div>
         <?php else: ?>
             <p class="small text-muted" style="margin:0;">No active revision cycle. The student needs to start one from their dashboard.</p>

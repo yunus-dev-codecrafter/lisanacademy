@@ -1165,51 +1165,200 @@ if (!function_exists('hafiz_has_active_revision')) {
     }
 }
 
+if (!function_exists('hafiz_juz_of_page')) {
+    /**
+     * Juz (1-30) that contains a given physical page in the 604-page Medina
+     * Mushaf layout: juz 1 = pp.1-21, juzs 2-29 = 20 pages each, juz 30 =
+     * pp.582-604 (23 pages). Totals 604.
+     */
+    function hafiz_juz_of_page($page) {
+        $page = (int)$page;
+        if ($page <= 21) return 1;
+        return (int)ceil(($page - 21) / 20) + 1;
+    }
+}
+
+if (!function_exists('hafiz_juz_range')) {
+    /**
+     * [first_page, last_page] for a juz number (1-30).
+     */
+    function hafiz_juz_range($juz) {
+        $juz = (int)$juz;
+        if ($juz <= 1) return [1, 21];
+        if ($juz >= 30) return [582, 604];
+        return [20 * $juz - 18, 20 * $juz + 1];
+    }
+}
+
+if (!function_exists('hafiz_juz_total_pages')) {
+    /**
+     * Number of physical pages in a juz (1-30).
+     */
+    function hafiz_juz_total_pages($juz) {
+        $r = hafiz_juz_range($juz);
+        return $r[1] - $r[0] + 1;
+    }
+}
+
+if (!function_exists('hafiz_juz_progress')) {
+    /**
+     * ['accepted' => int, 'total' => int] of accepted pages in a juz.
+     */
+    function hafiz_juz_progress($conn, $revision_id, $juz) {
+        $revision_id = (int)$revision_id;
+        $r = hafiz_juz_range($juz);
+        $total = $r[1] - $r[0] + 1;
+        if (!db_table_exists($conn, 'hafiz_sessions')) {
+            return ['accepted' => 0, 'total' => $total];
+        }
+        try {
+            $stmt = $conn->prepare("
+                SELECT COUNT(DISTINCT page_no) c FROM hafiz_sessions
+                WHERE revision_id = ? AND status = 'accepted' AND page_no >= ? AND page_no <= ?
+            ");
+            $stmt->bind_param("iii", $revision_id, $r[0], $r[1]);
+            $stmt->execute();
+            return ['accepted' => (int)$stmt->get_result()->fetch_assoc()['c'], 'total' => $total];
+        } catch (Throwable $e) {
+            return ['accepted' => 0, 'total' => $total];
+        }
+    }
+}
+
+if (!function_exists('hafiz_juz_complete')) {
+    /**
+     * True when every page of the juz has an accepted session (teacher
+     * approved the whole juz).
+     */
+    function hafiz_juz_complete($conn, $revision_id, $juz) {
+        if (!db_table_exists($conn, 'hafiz_sessions')) return false;
+        $p = hafiz_juz_progress($conn, $revision_id, $juz);
+        return $p['total'] > 0 && $p['accepted'] >= $p['total'];
+    }
+}
+
+if (!function_exists('hafiz_juz_test_passed')) {
+    /**
+     * True when the latest weekly test keyed to this juz (week_no = juz)
+     * passed.
+     */
+    function hafiz_juz_test_passed($conn, $revision_id, $juz) {
+        $test = hafiz_get_latest_test($conn, (int)$revision_id, (int)$juz);
+        return $test !== null && $test['status'] === 'passed';
+    }
+}
+
+if (!function_exists('hafiz_completed_juz_pages')) {
+    /**
+     * Accepted page numbers that live inside fully-accepted juzs — the pool a
+     * weekly test may draw questions from.
+     */
+    function hafiz_completed_juz_pages($conn, $revision_id) {
+        $revision_id = (int)$revision_id;
+        if (!db_table_exists($conn, 'hafiz_sessions')) return [];
+        $out = [];
+        for ($juz = 1; $juz <= 30; $juz++) {
+            if (!hafiz_juz_complete($conn, $revision_id, $juz)) continue;
+            $r = hafiz_juz_range($juz);
+            try {
+                $stmt = $conn->prepare("
+                    SELECT DISTINCT page_no FROM hafiz_sessions
+                    WHERE revision_id = ? AND status = 'accepted' AND page_no >= ? AND page_no <= ?
+                    ORDER BY page_no ASC
+                ");
+                $stmt->bind_param("iii", $revision_id, $r[0], $r[1]);
+                $stmt->execute();
+                while ($row = $stmt->get_result()->fetch_assoc()) $out[] = (int)$row['page_no'];
+            } catch (Throwable $e) { /* ignore */ }
+        }
+        return $out;
+    }
+}
+
+if (!function_exists('hafiz_juz_gate')) {
+    /**
+     * Gate check for crossing into the first page of a juz. When the revision
+     * pointer sits on the first page of juz > 1, the PREVIOUS juz must be fully
+     * accepted by the teacher AND its weekly test must be passed before the
+     * student may recite the new juz.
+     * Returns ['ok' => bool, 'reason' => string].
+     */
+    function hafiz_juz_gate($conn, $revision) {
+        if (!$revision) return ['ok' => true, 'reason' => ''];
+        $current_page = (int)($revision['current_page'] ?? 1);
+        $juz = hafiz_juz_of_page($current_page);
+        if ($juz <= 1) return ['ok' => true, 'reason' => ''];
+        if ($current_page !== hafiz_juz_range($juz)[0]) return ['ok' => true, 'reason' => ''];
+
+        $revision_id = (int)$revision['id'];
+        $prev = $juz - 1;
+
+        if (!hafiz_juz_complete($conn, $revision_id, $prev)) {
+            return ['ok' => false, 'reason' => "You have finished reciting Juz $prev. Your teacher must approve every page of Juz $prev before you can continue."];
+        }
+        if (hafiz_juz_test_passed($conn, $revision_id, $prev)) {
+            return ['ok' => true, 'reason' => ''];
+        }
+
+        $test = hafiz_get_latest_test($conn, $revision_id, $prev);
+        if ($test) {
+            switch ($test['status']) {
+                case 'submitted':
+                    return ['ok' => false, 'reason' => "Juz $prev test is with your teacher for review. You can recite Juz $juz once it is marked Passed."];
+                case 'failed':
+                    return ['ok' => false, 'reason' => "You must pass the Juz $prev test retake before reciting Juz $juz."];
+                case 'draft':
+                case 'expired':
+                default:
+                    return ['ok' => false, 'reason' => "Juz $prev is complete — take your weekly test to unlock Juz $juz."];
+            }
+        }
+        return ['ok' => false, 'reason' => "Masha'Allah, Juz $prev is complete! Take your weekly test to unlock Juz $juz."];
+    }
+}
+
 if (!function_exists('hafiz_current_week_no')) {
     /**
-     * Calculate the current week number from a revision row's current_page.
-     * Pages 1-20 = week 1, 21-40 = week 2, etc.
+     * Backwards-compatible alias: the revision's current Juz (1-30). Kept under
+     * the old name because the weekly test is keyed per juz.
      */
     function hafiz_current_week_no($revision) {
-        $page = (int)($revision['current_page'] ?? 1);
-        return (int)ceil($page / 20);
+        return hafiz_juz_of_page((int)($revision['current_page'] ?? 1));
     }
 }
 
 if (!function_exists('hafiz_pages_this_week')) {
     /**
-     * Count of distinct pages recited (submitted) for the given week in the
-     * given cycle, regardless of review status. Used to enforce the
-     * 21-recitations-per-week maximum without counting retries twice.
+     * Count of distinct pages recited (submitted) in the current CALENDAR week
+     * (since the revision's week_started_at, forward-rolled on Fridays). The
+     * weekly maximum counts every distinct page regardless of review status,
+     * without counting retries of the same page twice.
      */
-    function hafiz_pages_this_week($conn, $revision_id, $week_no) {
+    function hafiz_pages_this_week($conn, $revision_id, $week_no = 0) {
         $revision_id = (int)$revision_id;
-        $week_no = (int)$week_no;
         if (!db_table_exists($conn, 'hafiz_sessions') || !db_table_exists($conn, 'hafiz_revision')) return 0;
 
-        $from_page = ($week_no - 1) * 20 + 1;
-        $to_page = $week_no * 20;
+        $week_started_at = null;
+        try {
+            $stmt = $conn->prepare("SELECT week_started_at FROM hafiz_revision WHERE id = ? LIMIT 1");
+            $stmt->bind_param("i", $revision_id);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            $week_started_at = $r ? $r['week_started_at'] : null;
+        } catch (Throwable $e) { /* ignore */ }
+        if (!$week_started_at) return 0;
 
         try {
             $stmt = $conn->prepare("
                 SELECT COUNT(DISTINCT page_no) c FROM hafiz_sessions
-                WHERE revision_id = ? AND page_no >= ? AND page_no <= ?
+                WHERE revision_id = ? AND submitted_at >= ? AND submitted_at <= NOW()
             ");
-            $stmt->bind_param("iii", $revision_id, $from_page, $to_page);
+            $stmt->bind_param("is", $revision_id, $week_started_at);
             $stmt->execute();
             return (int)$stmt->get_result()->fetch_assoc()['c'];
         } catch (Throwable $e) {
             return 0;
         }
-    }
-}
-
-if (!function_exists('hafiz_week_quota_met')) {
-    /**
-     * True when the student has recited at least 20 pages this week.
-     */
-    function hafiz_week_quota_met($conn, $revision_id, $week_no) {
-        return hafiz_pages_this_week($conn, $revision_id, $week_no) >= 20;
     }
 }
 
@@ -1246,11 +1395,10 @@ if (!function_exists('hafiz_friday_boundary')) {
 
 if (!function_exists('hafiz_check_week_transition')) {
     /**
-     * Detect if the weekly cycle has expired (past Friday). If so:
-     *  - If quota met or skip approved: log the week as complete, start new week.
-     *  - Else: RESET progress to page 1 (new cycle).
-     *
-     * Returns ['action' => 'ok'|'reset'|'new_week', 'reason' => string].
+     * Roll the CALENDAR week forward when the Friday boundary has passed.
+     * Logs the completed week into hafiz_weekly_log (juz-based week_no, 24-page
+     * target) and restarts week_started_at at NOW. Never resets progress.
+     * Returns ['action' => 'ok'|'new_week', 'reason' => string].
      */
     function hafiz_check_week_transition($conn, $student_id) {
         $student_id = (int)$student_id;
@@ -1261,81 +1409,42 @@ if (!function_exists('hafiz_check_week_transition')) {
         $now = date('Y-m-d H:i:s');
         $friday = hafiz_friday_boundary($week_started_at);
 
-        // If we haven't passed the Friday boundary yet, no transition needed
+        // If we haven't passed the Friday boundary yet, no transition needed.
         if (strtotime($now) < strtotime($friday)) {
             return ['action' => 'ok', 'reason' => 'still in current week'];
         }
 
-        // We've passed the Friday boundary — check last week's quota
         $revision_id = (int)$revision['id'];
+        $pages = hafiz_pages_this_week($conn, $revision_id);
         $week_no = hafiz_current_week_no($revision);
-        $pages = hafiz_pages_this_week($conn, $revision_id, $week_no);
-        $quota_met = $pages >= 20;
-        $skip_approved = (int)$revision['skip_approved'] === 1;
+        $target_met = $pages >= 24 ? 1 : 0;
 
-        if ($quota_met || $skip_approved) {
-            // Log the completed week
-            $was_skipped = $skip_approved && !$quota_met ? 1 : 0;
-            try {
-                $stmt = $conn->prepare("
-                    INSERT INTO hafiz_weekly_log (revision_id, student_id, week_no, pages_completed, target_met, was_skipped, week_started_at, week_ended_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-                    ON DUPLICATE KEY UPDATE
-                        pages_completed = VALUES(pages_completed),
-                        target_met = VALUES(target_met),
-                        was_skipped = VALUES(was_skipped),
-                        week_ended_at = NOW()
-                ");
-                $target_met_db = $quota_met ? 1 : 0;
-                $stmt->bind_param("iiiisis", $revision_id, $student_id, $week_no, $pages, $target_met_db, $was_skipped, $week_started_at);
-                $stmt->execute();
-            } catch (Throwable $e) { /* ignore */ }
-
-            // Start new week
-            try {
-                $stmt = $conn->prepare("
-                    UPDATE hafiz_revision
-                    SET week_started_at = NOW(), skip_approved = 0, skip_approved_at = NULL
-                    WHERE id = ?
-                ");
-                $stmt->bind_param("i", $revision_id);
-                $stmt->execute();
-            } catch (Throwable $e) { /* ignore */ }
-
-            return ['action' => 'new_week', 'reason' => 'week completed, new week started'];
-        }
-
-        // Missed quota, no approval — RESET
-        $new_cycle = (int)$revision['cycle_no'] + 1;
+        // Log the completed calendar week.
         try {
-            // Log the failed week
-            $was_skipped = 0;
-            $target_met_db = 0;
             $stmt = $conn->prepare("
                 INSERT INTO hafiz_weekly_log (revision_id, student_id, week_no, pages_completed, target_met, was_skipped, week_started_at, week_ended_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+                VALUES (?, ?, ?, ?, ?, 0, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     pages_completed = VALUES(pages_completed),
                     target_met = VALUES(target_met),
-                    was_skipped = VALUES(was_skipped),
-                    week_ended_at = NOW()
+                    week_ended_at = VALUES(week_ended_at)
             ");
-            $stmt->bind_param("iiiisis", $revision_id, $student_id, $week_no, $pages, $target_met_db, $was_skipped, $week_started_at);
+            $stmt->bind_param("iiiiiss", $revision_id, $student_id, $week_no, $pages, $target_met, $week_started_at, $friday);
             $stmt->execute();
         } catch (Throwable $e) { /* ignore */ }
 
+        // Start the new calendar week now.
         try {
             $stmt = $conn->prepare("
                 UPDATE hafiz_revision
-                SET current_page = 1, cycle_no = ?, week_started_at = NOW(),
-                    skip_approved = 0, skip_approved_at = NULL
+                SET week_started_at = NOW(), skip_approved = 0, skip_approved_at = NULL
                 WHERE id = ?
             ");
-            $stmt->bind_param("ii", $new_cycle, $revision_id);
+            $stmt->bind_param("i", $revision_id);
             $stmt->execute();
         } catch (Throwable $e) { /* ignore */ }
 
-        return ['action' => 'reset', 'reason' => 'weekly target not met, progress reset to page 1'];
+        return ['action' => 'new_week', 'reason' => 'new calendar week started'];
     }
 }
 
@@ -1401,20 +1510,31 @@ if (!function_exists('hafiz_can_recite')) {
             return ['ok' => false, 'reason' => 'You have completed this revision cycle! Masha\'Allah!'];
         }
 
-        // Weekly maximum: 21 distinct pages per week. Re-recitations of
-        // flagged (rejected) pages are always allowed.
-        $week_no = hafiz_current_week_no($revision);
-        $pages = hafiz_pages_this_week($conn, (int)$revision['id'], $week_no);
-        $required_page = hafiz_required_page($conn, $revision);
-        $is_retry = $required_page !== (int)$revision['current_page'];
-        if (!$is_retry && $pages >= 21) {
-            return ['ok' => false, 'reason' => 'You have reached the weekly maximum of 21 pages. Well done! Wait for next week.'];
+        // Roll the calendar week forward if the Friday boundary has passed.
+        hafiz_check_week_transition($conn, $student_id);
+
+        // Re-fetch the revision so the week_started_at is fresh after any roll.
+        $revision = hafiz_get_active_revision($conn, $student_id);
+        if (!$revision) {
+            return ['ok' => false, 'reason' => 'You do not have an active revision cycle. Please contact the admin.'];
         }
 
-        // Check week transition
-        $transition = hafiz_check_week_transition($conn, $student_id);
-        if ($transition['action'] === 'reset') {
-            return ['ok' => false, 'reason' => 'You missed the weekly target. Your progress has been reset to page 1. Start a new cycle.'];
+        // Juz gate: the first page of a juz is locked until the previous juz is
+        // fully accepted by the teacher AND its weekly test is passed.
+        $required_page = hafiz_required_page($conn, $revision);
+        $is_retry = $required_page !== (int)$revision['current_page'];
+        if (!$is_retry) {
+            $gate = hafiz_juz_gate($conn, $revision);
+            if (!$gate['ok']) {
+                return ['ok' => false, 'reason' => $gate['reason']];
+            }
+        }
+
+        // Weekly maximum: 24 distinct pages per calendar week. Re-recitations
+        // of flagged (rejected) pages are always allowed.
+        $pages = hafiz_pages_this_week($conn, (int)$revision['id']);
+        if (!$is_retry && $pages >= 24) {
+            return ['ok' => false, 'reason' => 'You have reached the weekly maximum of 24 pages. Masha\'Allah! Wait for next week.'];
         }
 
         return ['ok' => true, 'reason' => ''];
@@ -1447,15 +1567,51 @@ if (!function_exists('hafiz_required_page')) {
     }
 }
 
+if (!function_exists('hafiz_ensure_advanced')) {
+    /**
+     * Idempotently advance the revision pointer past a submitted page so the
+     * student is never stuck on a page that was already recorded.
+     * Sets current_page = max(current_page, page_no + 1), capped at 605;
+     * reaching 605 marks the cycle complete.
+     */
+    function hafiz_ensure_advanced($conn, $revision_id, $page_no) {
+        $revision_id = (int)$revision_id;
+        $page_no = (int)$page_no;
+        if (!db_table_exists($conn, 'hafiz_revision')) return;
+
+        try {
+            $stmt = $conn->prepare("
+                UPDATE hafiz_revision
+                SET current_page = LEAST(605, GREATEST(current_page, ? + 1))
+                WHERE id = ?
+            ");
+            $stmt->bind_param("ii", $page_no, $revision_id);
+            $stmt->execute();
+
+            // Reaching 605 means every page has been recited — complete the cycle.
+            $stmt = $conn->prepare("
+                UPDATE hafiz_revision
+                SET status = 'completed', completed_at = NOW()
+                WHERE id = ? AND current_page >= 605 AND status <> 'completed'
+            ");
+            $stmt->bind_param("i", $revision_id);
+            $stmt->execute();
+        } catch (Throwable $e) {
+            error_log('hafiz advance failed: ' . $e->getMessage());
+        }
+    }
+}
+
 if (!function_exists('hafiz_record_submission')) {
     /**
      * Record a recitation submission for a page.
      *  - New page        : INSERT a pending session.
      *  - Flagged page    : retry resets the existing row to 'pending' (no
      *                      duplicate-key crash), keeping one row per page.
-     *  - Already pending : rejected with a friendly message.
-     *  - Already accepted: rejected with a friendly message.
-     * Advances current_page only when the submitted page is the current new page.
+     *  - Already pending : acknowledged in place with a friendly message.
+     *  - Already accepted: acknowledged in place with a friendly message.
+     * The revision pointer always advances past a submitted page (idempotently),
+     * so the student is never stuck on a page that was already recorded.
      * Returns ['ok' => bool, 'reason' => string].
      */
     function hafiz_record_submission($conn, $student_id, $revision_id, $page_no, $session_type, $audio_file = null) {
@@ -1480,9 +1636,15 @@ if (!function_exists('hafiz_record_submission')) {
         try {
             if ($existing) {
                 if ($existing['status'] === 'accepted') {
+                    // Already accepted — the recitation is recorded; just make sure
+                    // the pointer isn't stuck behind it.
+                    hafiz_ensure_advanced($conn, $revision_id, $page_no);
                     return ['ok' => false, 'reason' => 'This page has already been accepted. Masha\'Allah!'];
                 }
                 if ($existing['status'] === 'pending') {
+                    // Already pending — must never leave the student stuck on this
+                    // page, so advance past it before telling them.
+                    hafiz_ensure_advanced($conn, $revision_id, $page_no);
                     return ['ok' => false, 'reason' => 'This page is already awaiting your teacher\'s review. You can move on to the next page.'];
                 }
                 // status is 'rejected' — this is a retry: reset the row to pending
@@ -1518,30 +1680,10 @@ if (!function_exists('hafiz_record_submission')) {
             return ['ok' => false, 'reason' => 'Could not save your recitation. Please try again.'];
         }
 
-        // Advance the next new page only when the submitted page IS the current one.
-        if (db_table_exists($conn, 'hafiz_revision')) {
-            try {
-                $stmt = $conn->prepare("SELECT current_page FROM hafiz_revision WHERE id = ? LIMIT 1");
-                $stmt->bind_param("i", $revision_id);
-                $stmt->execute();
-                $cur = (int)$stmt->get_result()->fetch_assoc()['current_page'];
-                if ($cur <= $page_no) {
-                    hafiz_advance_page($conn, $revision_id);
-                }
-            } catch (Throwable $e) { /* ignore */ }
-        }
+        // Always advance past the submitted page (idempotent, concurrency-safe).
+        hafiz_ensure_advanced($conn, $revision_id, $page_no);
 
         return ['ok' => true, 'reason' => 'OK'];
-    }
-}
-
-if (!function_exists('hafiz_weekly_skip_remaining')) {
-    /**
-     * Pages remaining this week before hitting the 21-page maximum.
-     */
-    function hafiz_weekly_skip_remaining($conn, $revision_id, $week_no) {
-        $pages = hafiz_pages_this_week($conn, $revision_id, $week_no);
-        return max(0, 21 - $pages);
     }
 }
 
@@ -1554,13 +1696,13 @@ if (!function_exists('hafiz_test_time_limit')) {
      * Weekly test timed limits.
      *  - time_limit : minutes student has to answer before the test locks.
      *  - grace      : extra minutes allowed before the draft is voided.
-     *  - total      : combined deadline (20 + 3 = 23 minutes).
+     *  - total      : combined deadline (20 + 5 = 25 minutes).
      */
     function hafiz_test_time_limit() {
         return [
             'time_limit' => 20,
-            'grace'      => 3,
-            'total'      => 23,
+            'grace'      => 5,
+            'total'      => 25,
         ];
     }
 }
@@ -1622,33 +1764,36 @@ if (!function_exists('hafiz_expire_stale_draft')) {
 
 if (!function_exists('hafiz_week_test_qualified')) {
     /**
-     * True when the student may take (or already has) a weekly test for this
-     * revision: 20 pages accepted this week and the week was not skipped.
+     * True when the student may take (or already has) the weekly test for their
+     * current juz: every page of the juz must be accepted by the teacher, and
+     * the juz's test must not already be passed or with the teacher.
      */
     function hafiz_week_test_qualified($conn, $revision) {
         if (!$revision) return false;
-        if ((int)($revision['skip_approved'] ?? 0) === 1) return false;
-        $week_no = hafiz_current_week_no($revision);
-        return hafiz_pages_this_week($conn, (int)$revision['id'], $week_no) >= 20;
+        $revision_id = (int)$revision['id'];
+        $juz = hafiz_current_week_no($revision);
+        $test = hafiz_get_latest_test($conn, $revision_id, $juz);
+        if ($test && in_array($test['status'], ['passed', 'submitted'], true)) return false;
+        return hafiz_juz_complete($conn, $revision_id, $juz);
     }
 }
 
 if (!function_exists('hafiz_week_test_state')) {
     /**
-     * State machine for the weekly test of a revision.
+     * State machine for the weekly test of the revision's current juz.
      * Returns ['state' => ..., 'test' => row|null, 'reason' => string].
-     *  - locked     : 20-page quota not met yet (or week skipped).
-     *  - available  : quota met, no pending/active test - can Generate.
+     *  - locked     : current juz not fully accepted by the teacher yet.
+     *  - available  : juz complete, no pending/active test - can Generate.
      *  - in_progress: a draft is active (deadline not yet hit).
      *  - expired    : a draft exists but the deadline passed - must restart.
      *  - pending    : submitted, awaiting teacher review.
-     *  - passed     : approved for this week.
-     *  - failed     : must retake before continuing to the next week.
+     *  - passed     : approved for this juz - next juz unlocked.
+     *  - failed     : must retake before continuing to the next juz.
      */
     function hafiz_week_test_state($conn, $revision) {
         if (!$revision) return ['state' => 'locked', 'test' => null, 'reason' => 'No active revision cycle.'];
         if (!hafiz_week_test_qualified($conn, $revision)) {
-            return ['state' => 'locked', 'test' => null, 'reason' => 'Recite 20 pages this week before the weekly test is available.'];
+            return ['state' => 'locked', 'test' => null, 'reason' => 'Finish every page of your current Juz so your teacher can approve it — then your weekly test unlocks.'];
         }
 
         $revision_id = (int)$revision['id'];
@@ -1656,14 +1801,14 @@ if (!function_exists('hafiz_week_test_state')) {
         $test = hafiz_expire_stale_draft($conn, $revision_id, $week_no);
 
         if (!$test) {
-            return ['state' => 'available', 'test' => null, 'reason' => 'Generate your weekly test to begin. The timer starts immediately.'];
+            return ['state' => 'available', 'test' => null, 'reason' => 'Juz ' . $week_no . ' is complete. Generate your weekly test to begin — the timer starts immediately.'];
         }
 
         switch ($test['status']) {
             case 'passed':
-                return ['state' => 'passed', 'test' => $test, 'reason' => 'You passed this week\'s test. JazakAllahu khayran!'];
+                return ['state' => 'passed', 'test' => $test, 'reason' => 'You passed this juz\'s test. JazakAllahu khayran!'];
             case 'failed':
-                return ['state' => 'failed', 'test' => $test, 'reason' => 'Retake this week\'s test to continue reciting.'];
+                return ['state' => 'failed', 'test' => $test, 'reason' => 'Retake this juz\'s test to unlock your next pages.'];
             case 'submitted':
                 return ['state' => 'pending', 'test' => $test, 'reason' => 'Your test is with the teacher for review.'];
             case 'expired':
@@ -1681,18 +1826,14 @@ if (!function_exists('hafiz_week_test_state')) {
 
 if (!function_exists('hafiz_week_test_block_recite')) {
     /**
-     * True when the weekly-test gate says the student may NOT recite new pages.
-     * Once the 20-page quota is met (and not skipped), a passed test is
-     * required before any further recitation that week.
+     * True when the juz test gate says the student may NOT recite new pages:
+     * the pointer sits at the first page of a juz whose previous juz is not
+     * yet fully accepted and passed. Used for banner messaging.
      */
     function hafiz_week_test_block_recite($conn, $revision) {
         if (!$revision) return false;
-        if ((int)($revision['skip_approved'] ?? 0) === 1) return false;
-        $week_no = hafiz_current_week_no($revision);
-        if (hafiz_pages_this_week($conn, (int)$revision['id'], $week_no) < 20) return false;
-
-        $state = hafiz_week_test_state($conn, $revision);
-        return in_array($state['state'], ['pending', 'failed', 'expired', 'in_progress', 'available'], true);
+        $gate = hafiz_juz_gate($conn, $revision);
+        return !$gate['ok'];
     }
 }
 
@@ -1785,13 +1926,14 @@ if (!function_exists('hafiz_recited_pages')) {
 if (!function_exists('hafiz_generate_questions')) {
     /**
      * Build up to $count random verse-window questions (each >= 10 verses)
-     * from the surahs covered by the student's recited pages.
+     * from the accepted pages of COMPLETED juzs (every page of those juzs was
+     * approved by the teacher).
      * Returns a list of ['page_no','surah_id','from_verse','to_verse'].
      */
-    function hafiz_generate_questions($conn, $revision_id, $count = 3) {
+    function hafiz_generate_questions($conn, $revision_id, $count = 4) {
         $count = (int)$count;
         if ($count <= 0) return [];
-        $pages = hafiz_recited_pages($conn, $revision_id);
+        $pages = hafiz_completed_juz_pages($conn, $revision_id);
         if (!$pages) return [];
 
         // Gather candidate (surah, from, to) windows of >= 10 verses from accepted pages.
@@ -1855,11 +1997,11 @@ if (!function_exists('hafiz_generate_questions')) {
 
 if (!function_exists('hafiz_create_weekly_test')) {
     /**
-     * Create a fresh draft weekly test for the revision's current week with
-     * $count random questions. Returns the new test row or null on failure.
-     * Stale drafts for the same week are voided first.
+     * Create a fresh draft weekly test for the revision's current juz with
+     * $count random questions drawn from completed juzs. Returns the new test
+     * row or null on failure. Stale drafts for the same juz are voided first.
      */
-    function hafiz_create_weekly_test($conn, $student_id, $revision, $count = 3) {
+    function hafiz_create_weekly_test($conn, $student_id, $revision, $count = 4) {
         if (!$revision) return null;
         $student_id = (int)$student_id;
         $revision_id = (int)$revision['id'];

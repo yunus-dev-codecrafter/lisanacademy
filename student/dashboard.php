@@ -108,11 +108,12 @@ if ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1) {
     $hafiz_completed = $hafiz_current_page > 1 ? $hafiz_current_page - 1 : 0;
     $hafiz_pct = round(($hafiz_completed / 604) * 100);
     $hafiz_completed_cycles = hafiz_completed_cycles_count($conn, $student_id);
+    $hafiz_juz_no = $hafiz_revision ? hafiz_current_week_no($hafiz_revision) : 1;
     ?>
     <a class="stat-card stat-green" href="hafiz_revision.php">
         <span class="stat-ico"><?= ui_icon('book', 20) ?></span>
         <span class="stat-label">Qur'an Revision</span>
-        <span class="stat-value"><?=$hafiz_completed?> <span class="small text-muted">/ 604 pages</span></span>
+        <span class="stat-value">Juz <?= $hafiz_juz_no ?> <span class="small text-muted">· <?= $hafiz_completed ?>/604 pages</span></span>
         <div class="progress" style="margin-top:10px;">
             <div class="progress-fill" style="width:<?=$hafiz_pct?>%"></div>
             <div class="progress-text"><?=$hafiz_pct?>%</div>

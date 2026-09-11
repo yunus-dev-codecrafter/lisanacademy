@@ -105,8 +105,23 @@ if (!function_exists('ui_sidebar')) {
                 'suggestions'  => ['suggestions.php',      'bulb',   'Suggestions'],
                 'survey'       => ['survey_key.php',       'lock',   'Survey Key'],
             ];
+    } else {
+        $brandSub = 'Student';
+        $is_hafiz = (isset($GLOBALS['conn']) && isset($_SESSION['user_id']))
+            ? student_is_hafiz($GLOBALS['conn'], (int)$_SESSION['user_id'])
+            : false;
+
+        if ($is_hafiz) {
+            $items = [
+                'dashboard'    => ['dashboard.php',        'grid',   'Dashboard'],
+                'revision'     => ['hafiz_revision.php',   'book',   'Qur\'an Revision'],
+                'test'         => ['hafiz_test.php',       'calendar-check', 'Weekly Test'],
+                'announcements'=> ['announcements.php',    'bell',   'Announcements'],
+                'feedback'     => ['feedback.php',         'chat',   'Feedback'],
+                'ranking'      => ['ranking.php',          'trophy', 'Ranking'],
+                'profile'      => ['profile.php',          'user',   'Profile'],
+            ];
         } else {
-            $brandSub = 'Student';
             $items = [
                 'dashboard'    => ['dashboard.php',        'grid',   'Dashboard'],
                 'learning'     => ['my_learning.php',      'book',   'My Learning'],
@@ -120,6 +135,7 @@ if (!function_exists('ui_sidebar')) {
                 'profile'      => ['profile.php',          'user',   'Profile'],
             ];
         }
+    }
 
         $links = '';
         $i = 0;

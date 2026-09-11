@@ -84,7 +84,7 @@ if ($status === 'accepted') {
         if ($revision) {
             $week_no = hafiz_current_week_no($revision);
             $pages = hafiz_pages_this_week($conn, $revision_id, $week_no);
-            $target_met = $pages >= 20 ? 1 : 0;
+            $target_met = $pages >= 24 ? 1 : 0;
 
             $stmt = $conn->prepare("
                 INSERT INTO hafiz_weekly_log (revision_id, student_id, week_no, pages_completed, target_met, week_started_at)

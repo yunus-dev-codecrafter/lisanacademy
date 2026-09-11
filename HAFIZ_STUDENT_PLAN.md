@@ -9,11 +9,12 @@
 | Rule | Detail |
 |------|--------|
 | **Page unit** | 604 pages per cycle (standard Medina Mushaf) |
-| **Weekly target** | 20 pages/week, hard minimum |
-| **Weekly max** | 21 pages/week |
-| **Week boundary** | Resets every **Friday** |
-| **Missed week** | Without admin approval → ALL progress resets to page 1 |
-| **Order** | Sequential (page 1 → 2 → ... → 604) |
+| **Juz unit** | 30 juz (juz 1 = pages 1-21; juzs 2-29 = 20 pages each; juz 30 = pages 582-604) |
+| **Weekly cap** | 24 pages per calendar week (distinct pages), Friday boundary |
+| **Week boundary** | New week starts every **Friday** |
+| **Missed target** | No penalty — progress is never reset |
+| **Order** | Sequential (page 1 → 2 → … → 604) |
+| **Juz gating** | The next juz unlocks only when the current juz is fully accepted **and** its weekly test is passed |
 | **Cycles** | Repeatable — after 604 pages, start a new Daurah |
 | **Session** | Student selects 1 page per recitation session |
 | **Delivery** | Live (WhatsApp scheduling) or Audio upload |
@@ -249,19 +250,20 @@ Hafiz students can now **either** record in-browser (existing MediaRecorder flow
 - Reuses the **existing** `submit_hafiz_session.php` audio path — no server handler changes were needed.
 - Useful for students on slower devices/browsers or who prefer recording in a dedicated app first (e.g., iPhone Voice Memos).
 
-## 12. Weekly Friday Test (Pass/Fail) + Retake Gate
+## 12. Weekly Friday Test (Pass/Fail) + Retake Gate — Juz Model
 
-After reciting the week's 20 pages, a Hafiz takes a **3-question weekly test** on the passages already completed. The teacher listens and marks **Pass or Fail**. If the student fails, they **cannot recite new pages until they pass a retake**.
+After a Hafiz completes a juz — **every page of the juz accepted by the teacher** — they take a **4-question weekly test** on the passages already completed. The teacher listens and marks **Pass or Fail**. The student **cannot recite the next juz until the test is passed**; a failed result blocks them until a retake passes.
 
 ### Rules (confirmed)
-- Test is available **any day** once the student has met 20 pages in the current week.
-- **3 questions** per test — randomly drawn from **completed (accepted) pages** in the current cycle, via `config/quran_pages_data.php` (604-page Madani Mushaf page → surah/verse map).
+- Test is available once the current juz is `hafiz_juz_complete()` (all its pages accepted).
+- **4 questions** per test — randomly drawn from **completed (accepted) pages inside fully-accepted juzs** (pool = `hafiz_completed_juz_pages()`), via `config/quran_pages_data.php` (604-page Madani Mushaf page → surah/verse map).
 - Each question is a window of **≥10 consecutive verses** from one accepted page (X to Y wrapping rolls over to the next page if near the end).
-- **Time limit:** 20 minutes answering + 3 minutes grace to submit (total 23 min). The question text stays hidden until the student clicks **Generate Weekly Test**; the timer starts immediately at that moment.
+- **Time limit:** 20 minutes answering + 5 minutes grace to submit (total 25 min). The question text stays hidden until the student clicks **Generate Weekly Test**; the timer starts immediately at that moment.
 - If time expires without submission → the draft is marked `expired` and the student starts over with a **fresh set of random questions**.
 - Pass/Fail only (no rating / mistake-count). Teacher may optionally attach text feedback **and/or an audio feedback file**.
-- A **failed** result blocks new-page recitation until a retake passes (applied inside `hafiz_can_recite()`). A **pass** unlocks the next pages.
-- `skip_approved` bypasses the test/recitation gate entirely.
+- A **passed** result unlocks the next juz (via the gate in `hafiz_can_recite()`); a **failed** result blocks the next juz until a retake passes.
+- The student may begin the next juz in the same calendar week after passing, up to the 24-page weekly cap.
+- Generation guard is state-based: a fresh test is only created when no test is `in_progress`/`submitted` (states `available` / `failed` / `expired`).
 
 ### Storage
 - `uploads/hafiz_test_audio/` — student answer recordings.
@@ -272,8 +274,8 @@ After reciting the week's 20 pages, a Hafiz takes a **3-question weekly test** o
 |---|---|
 | `admin/db_migrate11.php` | Migration: `quran_pages` + `hafiz_weekly_tests` + `hafiz_test_answers` (idempotent, loads 604 page rows) |
 | `config/quran_pages_data.php` | 604-page Madani Mushaf page index (`page => surah, verse`) used for question generation |
-| `student/start_hafiz_test.php` | POST handler — validates quota, voids stale/expired drafts, generates a fresh draft test + 3 random questions |
-| `student/submit_hafiz_test.php` | POST handler — enforces 23-min deadline, saves 3 audio answers, marks test submitted |
+| `student/start_hafiz_test.php` | POST handler — validates juz completion + test state, voids stale/expired drafts, generates a fresh draft test + 4 random questions |
+| `student/submit_hafiz_test.php` | POST handler — enforces 25-min deadline, saves 4 audio answers, marks test submitted |
 | `student/hafiz_test.php` | Student state machine page: locked / available (generate) / expired (restart) / in_progress (record + upload, countdown timer) / pending / passed / failed (retake) |
 | `admin/review_hafiz_test.php` | Teacher review — plays answers, Pass/Fail decision, text + audio feedback |
 | `admin/hafiz_tests.php` | Admin list of all weekly tests, filterable by status |
@@ -281,9 +283,38 @@ After reciting the week's 20 pages, a Hafiz takes a **3-question weekly test** o
 ### Modified files
 | File | Change |
 |---|---|
-| `student/hafiz_revision.php` | Added "Upload Recording" option in recite modal + Weekly Test status card linking to `hafiz_test.php` |
+| `student/hafiz_revision.php` | Added "Upload Recording" option in recite modal + Juz Path strip + Weekly Test card linking to `hafiz_test.php` |
 | `admin/teaching.php` | Added Section E: Hafiz Weekly Tests awaiting review |
-| `config/security/helpers.php` | Added ~13 weekly-test helpers + recitation gate in `hafiz_can_recite()` |
+| `config/security/helpers.php` | Added ~13 weekly-test helpers + juz gate in `hafiz_can_recite()` |
 
 ### Migration notes
 - `admin/db_migrate11.php` must be run (in browser) on any existing install alongside `db_migrate10.php`.
+
+---
+
+## 13. Juz-Gated Revision Rework (implemented)
+
+Replaces the "weekly quota / skip week / reset" model with a juz-aware, calendar-week-capped model.
+
+### Changes
+- **Juz boundary math** — `hafiz_juz_of_page()`: juz 1 = pages 1-21 (21 pages); juzs 2-29 = `[20N-18 .. 20N+1]` (20 each); juz 30 = 582-604 (23). Helpers: `hafiz_juz_range()`, `hafiz_juz_total_pages()`, `hafiz_juz_progress()`, `hafiz_juz_complete()`, `hafiz_juz_test_passed()`, `hafiz_completed_juz_pages()`, `hafiz_juz_gate()`.
+- **Week cap** — `hafiz_pages_this_week()` counts distinct pages submitted since `week_started_at` up to now (24 cap). Retries are exempt.
+- **No reset, no skip** — `hafiz_check_week_transition()` logs the ended calendar week to `hafiz_weekly_log` (week_no = current juz, target_met = pages ≥ 24) and rolls `week_started_at` forward; progress is never reset. Skip-week feature (UI + `request_skip` handler + `approve_hafiz_skip.php` UI + `student_detail.php` buttons) removed.
+- **Juz gate** — `hafiz_can_recite()` blocks the first page of juz N > 1 unless juz N-1 is complete AND its test is passed (`hafiz_juz_test_passed()`). Retries within an accepted page are exempt (no new -1).
+- **4-question test** — `hafiz_generate_questions()` / `hafiz_create_weekly_test()` default to 4 questions from completed-juz pool; `hafiz_test_time_limit()` = 20 min + 5 min grace.
+- **UI** — `ui_sidebar()` renders a hafiz-only student menu (Dashboard, Qur'an Revision, Weekly Test, Announcements, Feedback, Ranking, Profile); `student/hafiz_revision.php` shows the Juz Path strip (30 chips), juz-based progress, and a gate banner; `student/dashboard.php` shows Juz number + juz progress; `hafiz_weekly_tests.week_no` now stores the juz number (historical week-based rows left as-is).
+
+### Files modified
+| File | Change |
+|---|---|
+| `config/security/helpers.php` | Juz helpers, date-based week count, no-reset transition, juz gate, test upgrades |
+| `student/hafiz_revision.php` | Juz Path strip + juz progress overview + gate banner + 24-page weekly block |
+| `student/hafiz_test.php` | Juz-based title/copy, 4 questions, 20+5 grace |
+| `student/start_hafiz_test.php` | State-based guard, 4 questions |
+| `student/submit_hafiz_session.php` | Removed `request_skip` handler |
+| `student/dashboard.php` | Juz-based hafiz stat card |
+| `config/security/ui.php` | Hafiz-only sidebar branch |
+| `admin/review_hafiz_session.php` | Juz week_no + 24-page target in weekly log |
+| `admin/hafiz_tests.php` | Juz copy/column |
+| `admin/review_hafiz_test.php` | Juz copy, feedback icon |
+| `admin/student_detail.php` | Juz progress + juz test status, removed skip buttons |

@@ -104,7 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <div class="page-hero animate-rise">
     <h1><?= ui_icon('mic', 24) ?> Weekly Test Review</h1>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
-        <span class="badge badge-blue">Week <?= (int)$test['week_no'] ?></span>
+        <span class="badge badge-blue">Juz <?= (int)$test['week_no'] ?></span>
         <?php if ($test['status'] === 'passed'): ?>
             <span class="badge badge-green">Passed</span>
         <?php elseif ($test['status'] === 'failed'): ?>
@@ -176,7 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <div class="alert alert-info" style="margin:0 0 12px;">
             <?= ui_icon('info', 15) ?>
-            <span style="flex:1;">The audio feedback is optional. If the student fails, they will be asked to retake the test with new random questions. If they pass, they may continue reciting for the week.</span>
+            <span style="flex:1;">The audio feedback is optional. If the student fails, they will be asked to retake the test with new random questions. If they pass, the next Juz is unlocked for them.</span>
         </div>
 
         <button class="btn btn-gold btn-lg btn-block" type="submit" onclick="return confirm('Confirm this decision?');"><?= ui_icon('send', 17) ?> Submit Review</button>
@@ -184,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </div>
 <?php elseif ($test['admin_feedback'] || $test['admin_audio_file']): ?>
 <div class="card animate-rise d3">
-    <div class="card-title"><h3 style="margin:0;"><?= ui_icon('comment', 17) ?> Given Feedback</h3></div>
+    <div class="card-title"><h3 style="margin:0;"><?= ui_icon('chat', 17) ?> Given Feedback</h3></div>
     <?php if ($test['admin_feedback']): ?><div class="panel"><strong>Text feedback:</strong><br><?= nl2br(htmlspecialchars($test['admin_feedback'])) ?></div><?php endif; ?>
     <?php if ($test['admin_audio_file']): ?>
         <div class="panel"><strong>Audio notes:</strong>
