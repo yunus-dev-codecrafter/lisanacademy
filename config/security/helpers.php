@@ -1178,9 +1178,9 @@ if (!function_exists('hafiz_current_week_no')) {
 
 if (!function_exists('hafiz_pages_this_week')) {
     /**
-     * Count of hafiz_sessions recited (submitted) for the given week in the
+     * Count of distinct pages recited (submitted) for the given week in the
      * given cycle, regardless of review status. Used to enforce the
-     * 21-recitations-per-week maximum.
+     * 21-recitations-per-week maximum without counting retries twice.
      */
     function hafiz_pages_this_week($conn, $revision_id, $week_no) {
         $revision_id = (int)$revision_id;
@@ -1192,7 +1192,7 @@ if (!function_exists('hafiz_pages_this_week')) {
 
         try {
             $stmt = $conn->prepare("
-                SELECT COUNT(*) c FROM hafiz_sessions
+                SELECT COUNT(DISTINCT page_no) c FROM hafiz_sessions
                 WHERE revision_id = ? AND page_no >= ? AND page_no <= ?
             ");
             $stmt->bind_param("iii", $revision_id, $from_page, $to_page);
@@ -1401,10 +1401,13 @@ if (!function_exists('hafiz_can_recite')) {
             return ['ok' => false, 'reason' => 'You have completed this revision cycle! Masha\'Allah!'];
         }
 
-        // Weekly maximum: 21 recitations per week. No other restriction.
+        // Weekly maximum: 21 distinct pages per week. Re-recitations of
+        // flagged (rejected) pages are always allowed.
         $week_no = hafiz_current_week_no($revision);
         $pages = hafiz_pages_this_week($conn, (int)$revision['id'], $week_no);
-        if ($pages >= 21) {
+        $required_page = hafiz_required_page($conn, $revision);
+        $is_retry = $required_page !== (int)$revision['current_page'];
+        if (!$is_retry && $pages >= 21) {
             return ['ok' => false, 'reason' => 'You have reached the weekly maximum of 21 pages. Well done! Wait for next week.'];
         }
 
@@ -1415,6 +1418,120 @@ if (!function_exists('hafiz_can_recite')) {
         }
 
         return ['ok' => true, 'reason' => ''];
+    }
+}
+
+if (!function_exists('hafiz_required_page')) {
+    /**
+     * The page the student must recite next: the earliest flagged (rejected)
+     * page in the cycle that has already been started, otherwise the current
+     * next new page. Flagged pages must be re-recited in order.
+     */
+    function hafiz_required_page($conn, $revision) {
+        $current_page = (int)($revision['current_page'] ?? 1);
+        $revision_id = (int)($revision['id'] ?? 0);
+        if ($revision_id > 0 && db_table_exists($conn, 'hafiz_sessions')) {
+            try {
+                $stmt = $conn->prepare("
+                    SELECT page_no FROM hafiz_sessions
+                    WHERE revision_id = ? AND status = 'rejected' AND page_no < ?
+                    ORDER BY page_no ASC LIMIT 1
+                ");
+                $stmt->bind_param("ii", $revision_id, $current_page);
+                $stmt->execute();
+                $r = $stmt->get_result()->fetch_assoc();
+                if ($r) return (int)$r['page_no'];
+            } catch (Throwable $e) { /* ignore */ }
+        }
+        return $current_page;
+    }
+}
+
+if (!function_exists('hafiz_record_submission')) {
+    /**
+     * Record a recitation submission for a page.
+     *  - New page        : INSERT a pending session.
+     *  - Flagged page    : retry resets the existing row to 'pending' (no
+     *                      duplicate-key crash), keeping one row per page.
+     *  - Already pending : rejected with a friendly message.
+     *  - Already accepted: rejected with a friendly message.
+     * Advances current_page only when the submitted page is the current new page.
+     * Returns ['ok' => bool, 'reason' => string].
+     */
+    function hafiz_record_submission($conn, $student_id, $revision_id, $page_no, $session_type, $audio_file = null) {
+        $student_id = (int)$student_id;
+        $revision_id = (int)$revision_id;
+        $page_no = (int)$page_no;
+        if (!db_table_exists($conn, 'hafiz_sessions')) {
+            return ['ok' => false, 'reason' => 'Recitation tracking is not set up yet.'];
+        }
+        $now = date('Y-m-d H:i:s');
+
+        try {
+            $stmt = $conn->prepare("SELECT id, status FROM hafiz_sessions WHERE revision_id = ? AND page_no = ? LIMIT 1");
+            $stmt->bind_param("ii", $revision_id, $page_no);
+            $stmt->execute();
+            $existing = $stmt->get_result()->fetch_assoc();
+        } catch (Throwable $e) {
+            error_log('hafiz lookup failed: ' . $e->getMessage());
+            return ['ok' => false, 'reason' => 'Could not save your recitation. Please try again.'];
+        }
+
+        try {
+            if ($existing) {
+                if ($existing['status'] === 'accepted') {
+                    return ['ok' => false, 'reason' => 'This page has already been accepted. Masha\'Allah!'];
+                }
+                if ($existing['status'] === 'pending') {
+                    return ['ok' => false, 'reason' => 'This page is already awaiting your teacher\'s review. You can move on to the next page.'];
+                }
+                // status is 'rejected' — this is a retry: reset the row to pending
+                $sid = (int)$existing['id'];
+                if ($audio_file !== null) {
+                    $upd = $conn->prepare("
+                        UPDATE hafiz_sessions
+                        SET session_type = ?, audio_file = ?, status = 'pending', rating = NULL,
+                            feedback = NULL, admin_audio_feedback = NULL, submitted_at = ?, reviewed_at = NULL
+                        WHERE id = ?
+                    ");
+                    $upd->bind_param("sssi", $session_type, $audio_file, $now, $sid);
+                } else {
+                    $upd = $conn->prepare("
+                        UPDATE hafiz_sessions
+                        SET session_type = ?, status = 'pending', rating = NULL, feedback = NULL,
+                            submitted_at = ?, reviewed_at = NULL
+                        WHERE id = ?
+                    ");
+                    $upd->bind_param("sssi", $session_type, $now, $sid);
+                }
+                $upd->execute();
+            } else {
+                $stmt = $conn->prepare("
+                    INSERT INTO hafiz_sessions (student_id, revision_id, page_no, session_type, audio_file, status, submitted_at)
+                    VALUES (?, ?, ?, ?, ?, 'pending', ?)
+                ");
+                $stmt->bind_param("iiisss", $student_id, $revision_id, $page_no, $session_type, $audio_file, $now);
+                $stmt->execute();
+            }
+        } catch (Throwable $e) {
+            error_log('hafiz submit failed: ' . $e->getMessage());
+            return ['ok' => false, 'reason' => 'Could not save your recitation. Please try again.'];
+        }
+
+        // Advance the next new page only when the submitted page IS the current one.
+        if (db_table_exists($conn, 'hafiz_revision')) {
+            try {
+                $stmt = $conn->prepare("SELECT current_page FROM hafiz_revision WHERE id = ? LIMIT 1");
+                $stmt->bind_param("i", $revision_id);
+                $stmt->execute();
+                $cur = (int)$stmt->get_result()->fetch_assoc()['current_page'];
+                if ($cur <= $page_no) {
+                    hafiz_advance_page($conn, $revision_id);
+                }
+            } catch (Throwable $e) { /* ignore */ }
+        }
+
+        return ['ok' => true, 'reason' => 'OK'];
     }
 }
 

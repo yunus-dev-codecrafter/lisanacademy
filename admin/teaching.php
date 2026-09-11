@@ -81,10 +81,10 @@ $live_requests = $conn->query("
 /* ----------------------
    Section D: Hafiz Revision Sessions
 ---------------------- */
-$hafiz_sessions = null;
-if (db_table_exists($conn, 'hafiz_sessions')) {
-    $hafiz_sessions = $conn->query("
-        SELECT 
+$hafiz_groups = [];
+if (db_table_exists($conn, 'hafiz_sessions') && db_table_exists($conn, 'hafiz_revision')) {
+    $hafiz_rows = $conn->query("
+        SELECT
             hs.id AS session_id,
             hs.student_id,
             hs.revision_id,
@@ -92,7 +92,10 @@ if (db_table_exists($conn, 'hafiz_sessions')) {
             hs.session_type,
             hs.audio_file,
             hs.status,
+            hs.rating,
+            hs.feedback,
             hs.submitted_at,
+            hs.reviewed_at,
             u.name AS student_name,
             u.email AS student_email,
             hr.cycle_no,
@@ -100,9 +103,25 @@ if (db_table_exists($conn, 'hafiz_sessions')) {
         FROM hafiz_sessions hs
         JOIN users u ON u.id = hs.student_id
         JOIN hafiz_revision hr ON hr.id = hs.revision_id
-        WHERE hs.status = 'pending'
-        ORDER BY hs.submitted_at ASC
+        WHERE hs.status IN ('pending','rejected')
+        ORDER BY hs.student_id ASC, hs.page_no ASC, hs.id ASC
     ");
+    if ($hafiz_rows) {
+        while ($hs = $hafiz_rows->fetch_assoc()) {
+            $sid = (int)$hs['student_id'];
+            if (!isset($hafiz_groups[$sid])) {
+                $hafiz_groups[$sid] = [
+                    'student_id'    => $sid,
+                    'student_name'  => $hs['student_name'],
+                    'student_email' => $hs['student_email'],
+                    'cycle_no'      => (int)$hs['cycle_no'],
+                    'current_page'  => (int)$hs['current_page'],
+                    'pages'         => [],
+                ];
+            }
+            $hafiz_groups[$sid]['pages'][] = $hs;
+        }
+    }
 }
 
 /* ----------------------
@@ -328,41 +347,62 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
 <!-- =====================
      Section D: Hafiz Revision Sessions
 ===================== -->
-<?php if ($hafiz_sessions): ?>
+<?php if (db_table_exists($conn, 'hafiz_sessions')): ?>
 <h2 class="mt-3 animate-rise d4" style="display:flex;align-items:center;gap:10px;">
-    <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);">D</span> Hafiz Revision Sessions
+    <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);">D</span> Hafiz Revision — Review Pages
 </h2>
 
-<?php if ($hafiz_sessions->num_rows > 0): ?>
-<?php while ($hs = $hafiz_sessions->fetch_assoc()): ?>
+<?php if (!empty($hafiz_groups)): ?>
+<?php foreach ($hafiz_groups as $g): ?>
 <div class="card animate-rise d4">
 
     <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
-        <h3 style="margin:0;"><?= htmlspecialchars($hs['student_name']) ?></h3>
-        <span class="small text-muted"><?= htmlspecialchars($hs['student_email']) ?></span>
+        <h3 style="margin:0;"><?= htmlspecialchars($g['student_name']) ?></h3>
+        <span class="small text-muted"><?= htmlspecialchars($g['student_email']) ?></span>
     </div>
 
-    <p class="small">
-        <span class="badge badge-green">Page <?= (int)$hs['page_no'] ?></span>
-        &nbsp;· Cycle #<?= (int)$hs['cycle_no'] ?>
-        &nbsp;· <?= $hs['session_type'] === 'live' ? 'Live Session' : 'Audio Recording' ?>
+    <p class="small" style="margin:0 0 12px;">
+        Cycle #<?= $g['cycle_no'] ?> · <strong><?= count($g['pages']) ?></strong> page(s) awaiting your verdict
+        &nbsp;·&nbsp; Student's next page: <?= $g['current_page'] ?>
     </p>
 
-    <?php if ($hs['session_type'] === 'audio' && !empty($hs['audio_file'])): ?>
-        <audio controls src="../uploads/student_audio/<?= htmlspecialchars($hs['audio_file']) ?>"></audio>
-    <?php elseif ($hs['session_type'] === 'live'): ?>
-        <p class="small text-muted" style="margin:4px 0 8px;"><?= ui_icon('video', 14) ?> Live recitation session — student will recite off-head during the scheduled call.</p>
-    <?php endif; ?>
+    <?php $pi = 0; foreach ($g['pages'] as $hs): $pi++; ?>
+    <div style="display:flex;flex-direction:column;gap:8px;padding:14px 0;border-top:1px solid var(--border);<?= $pi === 1 ? 'border-top:none;padding-top:0;' : '' ?>">
 
-    <form method="POST" action="review_hafiz_session.php" enctype="multipart/form-data" style="margin-top:6px;">
-        <input type="hidden" name="session_id" value="<?= (int)$hs['session_id'] ?>">
-        <?= csrf_field() ?>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span class="badge badge-green">Page <?= (int)$hs['page_no'] ?></span>
+            <?php if ($hs['status'] === 'rejected'): ?>
+                <span class="badge badge-red"><?= ui_icon('close', 13) ?> Flagged — Needs Work</span>
+            <?php else: ?>
+                <span class="badge badge-gold"><?= ui_icon('clock', 13) ?> Awaiting Review</span>
+            <?php endif; ?>
+            <span class="small text-muted"><?= $hs['session_type'] === 'live' ? 'Live Session' : 'Audio Recording' ?></span>
+            <span class="small text-muted"><?= date('d M Y, g:i A', strtotime($hs['submitted_at'])) ?></span>
+        </div>
 
-        <div class="grid-2">
-            <div class="form-group">
-                <label class="form-label">Rating</label>
-                <select class="form-select" name="rating" required>
-                    <option value="">--Select--</option>
+        <?php if ($hs['session_type'] === 'audio' && !empty($hs['audio_file'])): ?>
+            <audio controls preload="none" src="../uploads/student_audio/<?= htmlspecialchars($hs['audio_file']) ?>"></audio>
+        <?php elseif ($hs['session_type'] === 'live'): ?>
+            <p class="small text-muted" style="margin:0;"><?= ui_icon('video', 14) ?> Live recitation session — the student recited off-head during the scheduled call.</p>
+        <?php endif; ?>
+
+        <?php if ($hs['status'] === 'rejected' && !empty($hs['rating'])): ?>
+            <p class="small" style="margin:0;color:var(--danger);">Previous rating: <?= htmlspecialchars($hs['rating']) ?><?= !empty($hs['feedback']) ? ' · Previous feedback: "' . htmlspecialchars($hs['feedback']) . '"' : '' ?></p>
+        <?php endif; ?>
+
+        <form method="POST" action="review_hafiz_session.php" enctype="multipart/form-data" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+            <input type="hidden" name="session_id" value="<?= (int)$hs['session_id'] ?>">
+            <?= csrf_field() ?>
+
+            <div class="form-group" style="flex:2 1 240px;margin:0;">
+                <label class="form-label">Error details (optional)</label>
+                <textarea class="form-textarea" name="feedback" rows="2" placeholder="Only if you flag the page — e.g. Page 3, line 4, mispronounced word..."><?= htmlspecialchars($hs['feedback'] ?? '') ?></textarea>
+            </div>
+
+            <div class="form-group" style="flex:1 1 150px;margin:0;">
+                <label class="form-label">Rating (optional)</label>
+                <select class="form-select" name="rating">
+                    <option value="">--</option>
                     <option>Excellent</option>
                     <option>Very Good</option>
                     <option>Good</option>
@@ -371,41 +411,23 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
                     <option>Fail</option>
                 </select>
             </div>
-            <div class="form-group">
-                <label class="form-label"><?= ui_icon('mic', 16) ?> Upload Audio Feedback (Optional)</label>
-                <input class="form-input" type="file" name="admin_audio" accept="audio/*">
+
+            <div style="display:flex;gap:8px;">
+                <button class="btn" type="submit" name="status" value="accepted"><?= ui_icon('check', 15) ?> Pass</button>
+                <button class="btn btn-danger" type="submit" name="status" value="rejected"><?= ui_icon('close', 15) ?> Flag Page</button>
             </div>
-        </div>
-
-        <div class="form-group">
-            <label class="form-label">Feedback / Notes</label>
-            <textarea class="form-textarea" name="feedback"></textarea>
-        </div>
-
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <button class="btn" type="submit" name="status" value="accepted"><?= ui_icon('check', 16) ?> Accept</button>
-            <button class="btn btn-danger" type="submit" name="status" value="rejected"><?= ui_icon('close', 16) ?> Reject</button>
-        </div>
-    </form>
-
-    <div class="left-block" style="margin-top:10px;">
-        <form method="POST" action="delete_hafiz_session.php"
-              onsubmit="return confirm('Delete this Hafiz session permanently? The student will need to recite this page again.');">
-            <input type="hidden" name="session_id" value="<?= (int)$hs['session_id'] ?>">
-            <?= csrf_field() ?>
-            <button type="submit" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border);"><?= ui_icon('trash', 15) ?> Delete Session</button>
         </form>
     </div>
-
+    <?php endforeach; ?>
 </div>
-<?php endwhile; ?>
+<?php endforeach; ?>
 <?php else: ?>
     <div class="empty animate-rise d4">
         <div class="empty-icon"><?= ui_icon('check-circle', 40) ?></div>
-        <div class="empty-title">No pending Hafiz sessions</div>
-        <p class="small" style="margin:0;">Hafiz revision recitations awaiting your review will appear here.</p>
+        <div class="empty-title">No hafiz pages to review</div>
+        <p class="small" style="margin:0;">When a hafiz submits pages and they're awaiting your verdict, they'll appear here by student.</p>
     </div>
-    <?php endif; ?>
+<?php endif; ?>
 <?php endif; ?>
 
 <!-- =====================

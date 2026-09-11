@@ -27,6 +27,7 @@ if (!$revision) {
     $can_recite = false;
     $can_recite_reason = 'You do not have an active revision cycle. Please contact the admin.';
     $current_page = 1;
+    $required_page = 1;
     $week_no = 1;
     $pages_this_week = 0;
     $pages_remaining = 20;
@@ -35,6 +36,7 @@ if (!$revision) {
     $test_summary = ['state' => 'locked', 'reason' => '', 'test' => null, 'deadline' => null, 'started_at' => null, 'question_count' => 0];
 } else {
     $current_page = (int)$revision['current_page'];
+    $required_page = hafiz_required_page($conn, $revision);
     $week_no = hafiz_current_week_no($revision);
     $revision_id = (int)$revision['id'];
 
@@ -74,17 +76,23 @@ $week_started_at = $revision['week_started_at'] ?? date('Y-m-d H:i:s');
 $friday = hafiz_friday_boundary($week_started_at);
 $hours_until_friday = max(0, round((strtotime($friday) - time()) / 3600, 1));
 
-// Check which pages are completed
-$completed_pages = [];
+// Build per-page review status for the grid
+$page_status = [];   // page_no => 'accepted' | 'rejected' | 'pending'
+$failed_pages = [];  // flagged pages awaiting re-recitation (page_no => feedback)
 if ($revision) {
-    $stmt = $conn->prepare("SELECT page_no FROM hafiz_sessions WHERE revision_id = ? AND status = 'accepted' ORDER BY page_no ASC");
+    $stmt = $conn->prepare("SELECT page_no, status, feedback FROM hafiz_sessions WHERE revision_id = ? ORDER BY page_no ASC");
     $stmt->bind_param("i", $revision_id);
     $stmt->execute();
     $res = $stmt->get_result();
     while ($r = $res->fetch_assoc()) {
-        $completed_pages[] = (int)$r['page_no'];
+        $pn = (int)$r['page_no'];
+        $page_status[$pn] = $r['status'];
+        if ($r['status'] === 'rejected') {
+            $failed_pages[$pn] = $r['feedback'] ?? '';
+        }
     }
 }
+$failed_page_nos = array_keys($failed_pages);
 
 // WhatsApp number for live recitation
 $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
@@ -219,10 +227,23 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
         <h3 style="margin:0;"><?= ui_icon('book-open', 18) ?> Next Page to Recite</h3>
     </div>
 
+    <?php if (!empty($failed_page_nos)): ?>
+        <div class="alert alert-danger" style="margin:0 0 14px;">
+            <?= ui_icon('alert', 16) ?>
+            <span style="flex:1;">
+                <strong>Page<?= count($failed_page_nos) > 1 ? 's' : '' ?> <?= implode(', ', $failed_page_nos) ?> needs re-recitation.</strong>
+                Please recite this page again.
+                <?php foreach ($failed_pages as $fpn => $ffb): if ($ffb !== ''): ?>
+                    <div class="small" style="margin-top:6px;color:var(--danger);">Page <?= $fpn ?>: "<?= htmlspecialchars($ffb) ?>"</div>
+                <?php endif; endforeach; ?>
+            </span>
+        </div>
+    <?php endif; ?>
+
     <?php if ($can_recite): ?>
         <div style="text-align:center;padding:20px 0;">
-            <div style="font-size:2.5rem;font-weight:800;color:var(--emerald-700);margin-bottom:8px;">Page <?= $current_page ?></div>
-            <p class="small text-muted" style="margin:0 0 16px;">Click below to start reciting this page from memory.</p>
+            <div style="font-size:2.5rem;font-weight:800;color:var(--emerald-700);margin-bottom:8px;">Page <?= $required_page ?></div>
+            <p class="small text-muted" style="margin:0 0 16px;"><?= in_array($required_page, $failed_page_nos, true) ? 'Re-recitate this page from memory.' : 'Click below to start reciting this page from memory.' ?></p>
 
             <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
                 <button class="btn btn-gold btn-lg" onclick="openReciteModal('live')"><?= ui_icon('video', 18) ?> Live via WhatsApp</button>
@@ -247,28 +268,28 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
 
     <div style="display:flex;flex-wrap:wrap;gap:3px;padding:10px 0;">
         <?php
-        $page_status = [];
-        foreach ($completed_pages as $p) {
-            $page_status[$p] = 'completed';
-        }
-        if ($revision && $current_page <= 604) {
-            $page_status[$current_page] = 'current';
-        }
         for ($i = 1; $i <= 604; $i++):
             $class = 'page-cell page-locked';
-            if (isset($page_status[$i]) && $page_status[$i] === 'completed') {
+            $st = $page_status[$i] ?? null;
+            if ($st === 'accepted') {
                 $class = 'page-cell page-done';
-            } elseif (isset($page_status[$i]) && $page_status[$i] === 'current') {
+            } elseif ($st === 'rejected') {
+                $class = 'page-cell page-failed';
+            } elseif ($st === 'pending') {
+                $class = 'page-cell page-pending';
+            } elseif ($i === $required_page && $i <= 604) {
                 $class = 'page-cell page-current';
             }
         ?>
-            <div class="<?= $class ?>" title="Page <?= $i ?>"><?= $i ?></div>
+            <div class="<?= $class ?>" title="Page <?= $i ?><?= $st ? ' — ' . $st : '' ?>"><?= $i ?></div>
         <?php endfor; ?>
     </div>
 
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
         <span class="small"><span class="page-cell page-done" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Completed</span>
-        <span class="small"><span class="page-cell page-current" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Current</span>
+        <span class="small"><span class="page-cell page-failed" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Needs Work</span>
+        <span class="small"><span class="page-cell page-pending" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Awaiting Review</span>
+        <span class="small"><span class="page-cell page-current" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Next Up</span>
         <span class="small"><span class="page-cell page-locked" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Not recited yet</span>
     </div>
 </div>
@@ -325,12 +346,12 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
 <div class="modal" id="reciteModal">
     <div class="modal-content" style="max-width:480px;">
         <span class="modal-close" onclick="closeReciteModal()">&times;</span>
-        <h3 style="margin:0 0 6px;">Recite Page <?= $current_page ?></h3>
+        <h3 style="margin:0 0 6px;">Recite Page <?= $required_page ?></h3>
         <p class="small text-muted" style="margin:0 0 16px;" id="reciteModeText">Choose how you want to recite.</p>
 
         <!-- Audio Recording -->
         <div id="audioPanel" style="display:none;">
-            <p class="small" style="margin:0 0 12px;">Record yourself reciting Page <?= $current_page ?> from memory.</p>
+            <p class="small" style="margin:0 0 12px;">Record yourself reciting Page <?= $required_page ?> from memory.</p>
             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
                 <button class="btn" type="button" id="startRecBtn" onclick="startRecording()"><?= ui_icon('mic', 16) ?> Start Recording</button>
                 <button class="btn btn-danger" type="button" id="stopRecBtn" onclick="stopRecording()" disabled><?= ui_icon('stop', 16) ?> Stop</button>
@@ -342,7 +363,7 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
 
         <!-- Upload Local Recording -->
         <div id="uploadPanel" style="display:none;">
-            <p class="small" style="margin:0 0 12px;">Record yourself reciting Page <?= $current_page ?> on your device, then choose the audio file to upload it.</p>
+            <p class="small" style="margin:0 0 12px;">Record yourself reciting Page <?= $required_page ?> on your device, then choose the audio file to upload it.</p>
             <div class="form-group">
                 <label class="form-label">Audio File</label>
                 <input class="form-input" type="file" id="uploadFile" accept="audio/*,.mp3,.m4a,.wav,.ogg,.webm,.aac" required>
@@ -392,6 +413,17 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
     border-color: var(--gold-300, #fbbf24);
     font-weight: 800;
     animation: pulse 2s infinite;
+}
+.page-failed {
+    background: var(--danger-bg, #fee2e2);
+    color: var(--danger, #b91c1c);
+    border-color: var(--danger-border, #fca5a5);
+    font-weight: 800;
+}
+.page-pending {
+    background: #fef9c3;
+    color: #a16207;
+    border-color: #fde047;
 }
 .page-locked {
     background: var(--panel-bg, #f9fafb);
@@ -476,9 +508,9 @@ function sendAudio() {
     if (!recordedBlob) return alert('Please record your recitation first.');
     var fd = new FormData();
     fd.append('action', 'audio');
-    fd.append('page_no', <?= $current_page ?>);
+    fd.append('page_no', <?= $required_page ?>);
     fd.append('revision_id', <?= (int)($revision['id'] ?? 0) ?>);
-    fd.append('audio', recordedBlob, 'page_<?= $current_page ?>.webm');
+    fd.append('audio', recordedBlob, 'page_<?= $required_page ?>.webm');
     var csrfInput = document.querySelector('[name=csrf_token]');
     if (csrfInput) fd.append('csrf_token', csrfInput.value);
 
@@ -509,7 +541,7 @@ function submitUpload() {
     var file = fileInput.files[0];
     var fd = new FormData();
     fd.append('action', 'audio');
-    fd.append('page_no', <?= $current_page ?>);
+    fd.append('page_no', <?= $required_page ?>);
     fd.append('revision_id', <?= (int)($revision['id'] ?? 0) ?>);
     fd.append('audio', file, file.name);
     var csrfInput = document.querySelector('[name=csrf_token]');
@@ -555,7 +587,7 @@ function sendLive() {
 
     var fd = new URLSearchParams();
     fd.append('action', 'live');
-    fd.append('page_no', <?= $current_page ?>);
+    fd.append('page_no', <?= $required_page ?>);
     fd.append('revision_id', <?= (int)($revision['id'] ?? 0) ?>);
     fd.append('day', day);
     fd.append('time', time);

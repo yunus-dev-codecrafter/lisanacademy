@@ -76,15 +76,16 @@ if (!student_is_hafiz($conn, $student_id)) {
     exit;
 }
 
-// Verify this page is the correct next page
+// Verify this page is the correct required page
 $revision = hafiz_get_active_revision($conn, $student_id);
 if (!$revision || (int)$revision['id'] !== $revision_id) {
     echo 'Invalid revision cycle.';
     exit;
 }
 
-if ((int)$revision['current_page'] !== $page_no) {
-    echo 'You can only recite the next sequential page (Page ' . (int)$revision['current_page'] . ').';
+$required_page = hafiz_required_page($conn, $revision);
+if ($page_no !== $required_page) {
+    echo 'You can only recite the required page (Page ' . $required_page . ').';
     exit;
 }
 
@@ -111,15 +112,8 @@ if ($action === 'audio') {
     if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
 
     if (move_uploaded_file($_FILES['audio']['tmp_name'], $upload_dir . $filename)) {
-        $now = date('Y-m-d H:i:s');
-        $stmt = $conn->prepare("
-            INSERT INTO hafiz_sessions (student_id, revision_id, page_no, session_type, audio_file, status, submitted_at)
-            VALUES (?, ?, ?, 'audio', ?, 'pending', ?)
-        ");
-        $stmt->bind_param("iiiss", $student_id, $revision_id, $page_no, $filename, $now);
-        $stmt->execute();
-        hafiz_advance_page($conn, $revision_id);
-        echo 'OK';
+        $res = hafiz_record_submission($conn, $student_id, $revision_id, $page_no, 'audio', $filename);
+        echo $res['ok'] ? 'OK' : $res['reason'];
         exit;
     } else {
         echo 'Failed to save audio file.';
@@ -137,16 +131,12 @@ if ($action === 'live') {
         exit;
     }
 
-    // Insert as pending live session
-    $now = date('Y-m-d H:i:s');
-    $session_type = 'live';
-    $stmt = $conn->prepare("
-        INSERT INTO hafiz_sessions (student_id, revision_id, page_no, session_type, status, submitted_at)
-        VALUES (?, ?, ?, 'live', 'pending', ?)
-    ");
-    $stmt->bind_param("iiis", $student_id, $revision_id, $page_no, $now);
-    $stmt->execute();
-    hafiz_advance_page($conn, $revision_id);
+    // Record submission (pending live session)
+    $res = hafiz_record_submission($conn, $student_id, $revision_id, $page_no, 'live');
+    if (!$res['ok']) {
+        echo $res['reason'];
+        exit;
+    }
 
     // Build WhatsApp message
     $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
