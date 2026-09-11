@@ -1174,6 +1174,7 @@ if (!function_exists('hafiz_juz_of_page')) {
     function hafiz_juz_of_page($page) {
         $page = (int)$page;
         if ($page <= 21) return 1;
+        if ($page > 581) return 30; // juz 30 runs pp.582-604 (23 pages)
         return (int)ceil(($page - 21) / 20) + 1;
     }
 }
@@ -1952,48 +1953,67 @@ if (!function_exists('hafiz_page_verse_span')) {
         $cur = null;
         $nxt = null;
 
-        if (db_table_exists($conn, 'quran_pages')) {
+        // Static Madani index (config/quran_pages_data.php) covers the whole
+        // 604 pages and ships with the app, so it is the authoritative source.
+        // Preferring it here means a missing/partial quran_pages DB table can
+        // never break question generation.
+        static $index = null;
+        if ($index === null) {
+            $index = [];
             try {
-                $stmt = $conn->prepare("SELECT page_no, surah_id, verse FROM quran_pages WHERE page_no = ? OR page_no = ? ORDER BY page_no ASC");
-                $stmt->bind_param("ii", $page_no, $page_no + 1);
-                $stmt->execute();
-                $rows = $stmt->get_result();
-                while ($r = $rows->fetch_assoc()) {
-                    if ((int)$r['page_no'] === $page_no) $cur = $r;
-                    elseif ((int)$r['page_no'] === $page_no + 1) $nxt = $r;
-                }
+                $loaded = require __DIR__ . '/../quran_pages_data.php';
+                if (is_array($loaded)) $index = $loaded;
             } catch (Throwable $e) { /* ignore */ }
         }
+        if (isset($index[$page_no])) {
+            $cur = ['page_no' => $page_no, 'surah_id' => (int)$index[$page_no]['surah'], 'verse' => (int)$index[$page_no]['verse']];
+        }
+        if (isset($index[$page_no + 1])) {
+            $nxt = ['page_no' => $page_no + 1, 'surah_id' => (int)$index[$page_no + 1]['surah'], 'verse' => (int)$index[$page_no + 1]['verse']];
+        }
 
-        // Static Madani index fallback (config/quran_pages_data.php) covers the
-        // whole 604 pages, so a missing/empty quran_pages table cannot break
-        // question generation.
+        // DB fallback (only when the static index is unavailable or incomplete).
         if (!$cur || !$nxt) {
-            try {
-                $index = require __DIR__ . '/../quran_pages_data.php';
-                if (!$cur && isset($index[$page_no])) {
-                    $cur = ['page_no' => $page_no, 'surah_id' => (int)$index[$page_no]['surah'], 'verse' => (int)$index[$page_no]['verse']];
-                }
-                if (!$nxt && isset($index[$page_no + 1])) {
-                    $nxt = ['page_no' => $page_no + 1, 'surah_id' => (int)$index[$page_no + 1]['surah'], 'verse' => (int)$index[$page_no + 1]['verse']];
-                }
-            } catch (Throwable $e) { /* ignore */ }
+            if (db_table_exists($conn, 'quran_pages')) {
+                try {
+                    $nxt_page = $page_no + 1;
+                    $stmt = $conn->prepare("SELECT page_no, surah_id, verse FROM quran_pages WHERE page_no = ? OR page_no = ? ORDER BY page_no ASC");
+                    $stmt->bind_param("ii", $page_no, $nxt_page);
+                    $stmt->execute();
+                    $rows = $stmt->get_result();
+                    while ($r = $rows->fetch_assoc()) {
+                        if (!$cur && (int)$r['page_no'] === $page_no) $cur = $r;
+                        elseif (!$nxt && (int)$r['page_no'] === $nxt_page) $nxt = $r;
+                    }
+                } catch (Throwable $e) { /* ignore */ }
+            }
         }
 
         if (!$cur) return null;
 
         if (!$nxt) {
-            // Only page 604 legitimately has no following page.
+            // Page 604 is the final page of the Qur'an: it ends at the end of Surah 114 (An-Nas).
             if ($page_no !== 604) return null;
             return [
                 'start' => ['surah' => (int)$cur['surah_id'], 'verse' => (int)$cur['verse']],
-                'end'   => ['surah' => (int)$cur['surah_id'], 'verse' => hafiz_surah_verse_count($conn, (int)$cur['surah_id'])],
+                'end'   => ['surah' => 114, 'verse' => hafiz_surah_verse_count($conn, 114)],
             ];
+        }
+
+        $end_s = (int)$nxt['surah_id'];
+        $end_v = (int)$nxt['verse'] - 1;
+
+        // A page whose next page opens a NEW surah at verse 1 ends at that
+        // previous surah's final verse, never at "verse 0".
+        if ($end_v < 1) {
+            $end_s = $end_s - 1;
+            $end_v = hafiz_surah_verse_count($conn, $end_s);
+            if ($end_v < 1) $end_v = 1;
         }
 
         return [
             'start' => ['surah' => (int)$cur['surah_id'], 'verse' => (int)$cur['verse']],
-            'end'   => ['surah' => (int)$nxt['surah_id'], 'verse' => (int)$nxt['verse'] - 1],
+            'end'   => ['surah' => $end_s, 'verse' => $end_v],
         ];
     }
 }
@@ -2043,9 +2063,16 @@ if (!function_exists('hafiz_recited_pages')) {
 
 if (!function_exists('hafiz_generate_questions')) {
     /**
-     * Build up to $count random verse-window questions (each >= 10 verses)
-     * from the accepted pages of COMPLETED juzs (every page of those juzs was
-     * approved by the teacher).
+     * Build $count random verse-window questions (each >= 10 verses) from the
+     * accepted pages of COMPLETED juzs (every page of those juzs was approved
+     * by the teacher).
+     *
+     * A Madani page can hold as few as 4-11 verses, so a window is allowed to
+     * roll forward onto the next accepted page - but it always stays within a
+     * single surah, keeping the rendered "Surah X from verse A to B" correct.
+     * A completed juz always holds hundreds of accepted verses, so exactly
+     * $count distinct windows are guaranteed.
+     *
      * Returns a list of ['page_no','surah_id','from_verse','to_verse'].
      */
     function hafiz_generate_questions($conn, $revision_id, $count = 4) {
@@ -2054,38 +2081,31 @@ if (!function_exists('hafiz_generate_questions')) {
         $pages = hafiz_completed_juz_pages($conn, $revision_id);
         if (!$pages) return [];
 
-        // Gather candidate (surah, from, to) windows of >= 10 verses from accepted pages.
-        $candidates = [];
+        // Decompose every accepted page into ordered, surah-bounded verse
+        // chunks (an index page can cover several surahs).
+        $chunks = [];
         foreach ($pages as $pn) {
             $span = hafiz_page_verse_span($conn, $pn);
             if (!$span) continue;
             $start_s = (int)$span['start']['surah'];
             $start_v = (int)$span['start']['verse'];
-            $end_s = (int)$span['end']['surah'];
-            $end_v = (int)$span['end']['verse'];
+            $end_s   = (int)$span['end']['surah'];
+            $end_v   = (int)$span['end']['verse'];
 
-            // Build surah-bounded segments within this page's span.
             $s = $start_s;
             $v = $start_v;
             $guard = 0;
-            while ($guard < 150) {
-                $guard++;
+            while ($guard++ < 150) {
                 $tv = hafiz_surah_verse_count($conn, $s);
                 if ($tv < 1) { $s++; $v = 1; continue; }
 
                 $seg_to = ($s === $end_s) ? $end_v : $tv;
-                $seg_len = $seg_to - $v + 1;
-                if ($seg_len >= 10) {
-                    // Random window inside this segment.
-                    $max_range = min(15, $seg_len);
-                    $range = rand(10, $max_range);
-                    $max_start = $seg_len - $range + 1;
-                    $st = $v + ($max_start > 1 ? rand(0, $max_start - 1) : 0);
-                    $candidates[] = [
-                        'page_no'    => $pn,
-                        'surah_id'   => $s,
-                        'from_verse' => $st,
-                        'to_verse'   => $st + $range - 1,
+                if ($seg_to >= $v) {
+                    $chunks[] = [
+                        'page_no'  => $pn,
+                        'surah_id' => $s,
+                        'from'     => $v,
+                        'to'       => $seg_to,
                     ];
                 }
 
@@ -2094,17 +2114,114 @@ if (!function_exists('hafiz_generate_questions')) {
                 $v = 1;
             }
         }
+        if (!$chunks) return [];
 
-        shuffle($candidates);
-        $unique = [];
-        foreach ($candidates as $c) {
-            $key = $c['page_no'] . '-' . $c['surah_id'] . '-' . $c['from_verse'] . '-' . $c['to_verse'];
-            if (isset($unique[$key])) continue;
-            $unique[$key] = $c;
-            if (count($unique) >= $count) break;
+        // Merge consecutive chunks of the same surah into one run so a window
+        // can roll across pages but never crosses into another surah.
+        $runs = [];
+        foreach ($chunks as $c) {
+            $ri = count($runs) - 1;
+            if ($ri >= 0 && (int)$runs[$ri]['surah_id'] === (int)$c['surah_id'] && (int)$c['from'] === (int)$runs[$ri]['to'] + 1) {
+                $runs[$ri]['to'] = $c['to'];
+                $runs[$ri]['pages'][] = ['page_no' => $c['page_no'], 'from' => $c['from'], 'to' => $c['to']];
+            } else {
+                $runs[] = [
+                    'surah_id' => $c['surah_id'],
+                    'from'     => $c['from'],
+                    'to'       => $c['to'],
+                    'pages'    => [['page_no' => $c['page_no'], 'from' => $c['from'], 'to' => $c['to']]],
+                ];
+            }
         }
 
-        return array_values($unique);
+        $windows = [];
+        $find_page = function ($run, $v) {
+            foreach ($run['pages'] as $pg) {
+                if ($v >= $pg['from'] && $v <= $pg['to']) return (int)$pg['page_no'];
+            }
+            return (int)($run['pages'][0]['page_no'] ?? 0);
+        };
+
+        // Pass 1: Standard 10-15 verse non-overlapping windows
+        foreach ($runs as $run) {
+            $run_to = (int)$run['to'];
+            $pos = (int)$run['from'];
+            while ($run_to - $pos + 1 >= 10) {
+                $remaining = $run_to - $pos + 1;
+                $len = rand(10, min(15, $remaining));
+                $jitter = ($remaining - $len > 0) ? rand(0, min(2, $remaining - $len)) : 0;
+                $start = $pos + $jitter;
+
+                $windows[] = [
+                    'page_no'    => $find_page($run, $start),
+                    'surah_id'   => (int)$run['surah_id'],
+                    'from_verse' => $start,
+                    'to_verse'   => $start + $len - 1,
+                ];
+                $pos = $start + $len;
+            }
+        }
+
+        // Pass 2: Fallback for shorter runs (< 10 verses) if still short of target count
+        if (count($windows) < $count) {
+            foreach ($runs as $run) {
+                $total = (int)$run['to'] - (int)$run['from'] + 1;
+                if ($total >= 5 && $total < 10) {
+                    $windows[] = [
+                        'page_no'    => $find_page($run, (int)$run['from']),
+                        'surah_id'   => (int)$run['surah_id'],
+                        'from_verse' => (int)$run['from'],
+                        'to_verse'   => (int)$run['to'],
+                    ];
+                }
+            }
+        }
+
+        // Pass 3: Secondary sampling from larger runs if still short of target count
+        if (count($windows) < $count) {
+            foreach ($runs as $run) {
+                $total = (int)$run['to'] - (int)$run['from'] + 1;
+                if ($total >= 10) {
+                    $len = min(10, $total);
+                    for ($attempt = 0; $attempt < 5 && count($windows) < $count; $attempt++) {
+                        $max_start = (int)$run['to'] - $len + 1;
+                        $start = rand((int)$run['from'], $max_start);
+                        $exists = false;
+                        foreach ($windows as $w) {
+                            if ($w['surah_id'] === (int)$run['surah_id'] && abs($w['from_verse'] - $start) < 4) {
+                                $exists = true;
+                                break;
+                            }
+                        }
+                        if (!$exists) {
+                            $windows[] = [
+                                'page_no'    => $find_page($run, $start),
+                                'surah_id'   => (int)$run['surah_id'],
+                                'from_verse' => $start,
+                                'to_verse'   => $start + $len - 1,
+                            ];
+                        }
+                    }
+                }
+                if (count($windows) >= $count) break;
+            }
+        }
+
+        if (!$windows) return [];
+
+        // Deduplicate windows
+        $unique = [];
+        $seen = [];
+        foreach ($windows as $w) {
+            $k = $w['page_no'] . '-' . $w['surah_id'] . '-' . $w['from_verse'] . '-' . $w['to_verse'];
+            if (!isset($seen[$k])) {
+                $seen[$k] = true;
+                $unique[] = $w;
+            }
+        }
+
+        shuffle($unique);
+        return array_slice($unique, 0, $count);
     }
 }
 
@@ -2144,13 +2261,22 @@ if (!function_exists('hafiz_create_weekly_test')) {
                 $u = $conn->prepare("DELETE FROM hafiz_weekly_tests WHERE id = ?");
                 $u->bind_param("i", $test_id);
                 $u->execute();
+                // Surface why generation produced nothing so the failure is
+                // diagnosable (e.g. page-index resolution broken).
+                $pool = hafiz_completed_juz_pages($conn, $revision_id);
+                @error_log("hafiz_generate_questions yielded 0 questions (revision_id=$revision_id, week_no=$week_no, student_id=$student_id, accepted_pages=" . count($pool) . ")");
             } catch (Throwable $e) { /* ignore */ }
             return null;
         }
 
         $ins = $conn->prepare("INSERT INTO hafiz_test_answers (test_id, page_no, surah_id, from_verse, to_verse, status) VALUES (?, ?, ?, ?, ?, 'pending')");
+        $p_page = 0; $p_surah = 0; $p_from = 0; $p_to = 0;
+        $ins->bind_param("iiiii", $test_id, $p_page, $p_surah, $p_from, $p_to);
         foreach ($questions as $q) {
-            $ins->bind_param("iiiii", $test_id, $q['page_no'], $q['surah_id'], $q['from_verse'], $q['to_verse']);
+            $p_page = (int)$q['page_no'];
+            $p_surah = (int)$q['surah_id'];
+            $p_from = (int)$q['from_verse'];
+            $p_to = (int)$q['to_verse'];
             $ins->execute();
         }
 

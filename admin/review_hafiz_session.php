@@ -94,7 +94,7 @@ if ($status === 'accepted') {
                     target_met = VALUES(target_met)
             ");
             $week_started = $revision['week_started_at'];
-            $stmt->bind_param("iiiisi", $revision_id, $student_id, $week_no, $pages, $target_met, $week_started);
+            $stmt->bind_param("iiiiis", $revision_id, $student_id, $week_no, $pages, $target_met, $week_started);
             $stmt->execute();
         }
     }
