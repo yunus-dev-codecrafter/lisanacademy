@@ -33,6 +33,7 @@ if (!$revision) {
     $completed_cycles = hafiz_completed_cycles_count($conn, $student_id);
     $pending_session = null;
     $recent_sessions = [];
+    $test_summary = ['state' => 'locked', 'reason' => '', 'test' => null, 'deadline' => null, 'started_at' => null, 'question_count' => 0];
 } else {
     $current_page = (int)$revision['current_page'];
     $week_no = hafiz_current_week_no($revision);
@@ -42,6 +43,9 @@ if (!$revision) {
     $pages_remaining = max(0, 20 - $pages_this_week);
     $weekly_remaining = max(0, 21 - $pages_this_week);
     $completed_cycles = hafiz_completed_cycles_count($conn, $student_id);
+
+    // Weekly test summary (smoothed for display below)
+    $test_summary = hafiz_test_result_for_student($conn, $revision);
 
     // Check if can recite
     $can_check = hafiz_can_recite($conn, $student_id);
@@ -176,6 +180,47 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
     </div>
 </div>
 
+<!-- Weekly Test Card -->
+<?php if ($revision && hafiz_week_test_qualified($conn, $revision)): ?>
+<div class="card animate-rise d1" style="border:1px solid var(--gold-300, #fbbf24);">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <h3 style="margin:0;"><?= ui_icon('calendar-check', 18) ?> Weekly Test — Week <?= $week_no ?></h3>
+        <?php if ($test_summary['state'] === 'passed'): ?>
+            <span class="badge badge-green"><?= ui_icon('check-circle', 13) ?> Passed</span>
+        <?php elseif ($test_summary['state'] === 'pending'): ?>
+            <span class="badge badge-gold"><?= ui_icon('clock', 13) ?> Under Review</span>
+        <?php elseif ($test_summary['state'] === 'failed'): ?>
+            <span class="badge badge-red"><?= ui_icon('close', 13) ?> Retake Required</span>
+        <?php elseif ($test_summary['state'] === 'in_progress'): ?>
+            <span class="badge badge-blue"><?= ui_icon('mic', 13) ?> In Progress</span>
+        <?php elseif ($test_summary['state'] === 'expired'): ?>
+            <span class="badge badge-grey"><?= ui_icon('clock', 13) ?> Expired</span>
+        <?php else: ?>
+            <span class="badge badge-gold"><?= ui_icon('bolt', 13) ?> Take Test</span>
+        <?php endif; ?>
+    </div>
+    <p class="small text-muted" style="margin:0 0 10px;">
+        <?= htmlspecialchars($test_summary['reason']) ?>
+        <?php if ($test_summary['state'] === 'in_progress' && $test_summary['deadline']): ?>
+            <br><strong>Submit before:</strong> <?= date('d M Y, g:i A', strtotime($test_summary['deadline'])) ?>
+        <?php endif; ?>
+    </p>
+    <a class="btn <?= $test_summary['state'] === 'in_progress' ? 'btn-gold' : 'btn-ghost' ?>" href="hafiz_test.php">
+        <?php if ($test_summary['state'] === 'in_progress'): ?>
+            <?= ui_icon('mic', 16) ?> Continue Test
+        <?php elseif ($test_summary['state'] === 'failed'): ?>
+            <?= ui_icon('refresh', 16) ?> Retake Test
+        <?php elseif ($test_summary['state'] === 'passed'): ?>
+            <?= ui_icon('eye', 16) ?> View Result
+        <?php elseif ($test_summary['state'] === 'pending'): ?>
+            <?= ui_icon('clock', 16) ?> View Status
+        <?php else: ?>
+            <?= ui_icon('bolt', 16) ?> Take Weekly Test
+        <?php endif; ?>
+    </a>
+</div>
+<?php endif; ?>
+
 <!-- Current Page Card -->
 <div class="card animate-rise d2">
     <div class="card-title">
@@ -195,6 +240,7 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
             <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
                 <button class="btn btn-gold btn-lg" onclick="openReciteModal('live')"><?= ui_icon('video', 18) ?> Live via WhatsApp</button>
                 <button class="btn btn-lg" onclick="openReciteModal('audio')"><?= ui_icon('mic', 18) ?> Record Audio</button>
+                <button class="btn btn-lg" onclick="openReciteModal('upload')"><?= ui_icon('upload', 18) ?> Upload Recording</button>
             </div>
         </div>
     <?php else: ?>
@@ -307,6 +353,18 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
             <button class="btn btn-gold btn-block" id="sendAudioBtn" style="display:none;margin-top:10px;" onclick="sendAudio()"><?= ui_icon('send', 16) ?> Submit Recitation</button>
         </div>
 
+        <!-- Upload Local Recording -->
+        <div id="uploadPanel" style="display:none;">
+            <p class="small" style="margin:0 0 12px;">Record yourself reciting Page <?= $current_page ?> on your device, then choose the audio file to upload it.</p>
+            <div class="form-group">
+                <label class="form-label">Audio File</label>
+                <input class="form-input" type="file" id="uploadFile" accept="audio/*,.mp3,.m4a,.wav,.ogg,.webm,.aac" required>
+            </div>
+            <audio id="uploadPreview" controls style="display:none;width:100%;margin-top:8px;"></audio>
+            <div id="uploadProgress2" style="display:none;" class="small text-muted">Uploading...</div>
+            <button class="btn btn-gold btn-block" style="margin-top:10px;" onclick="submitUpload()"><?= ui_icon('upload', 16) ?> Upload Recitation</button>
+        </div>
+
         <!-- Live via WhatsApp -->
         <div id="livePanel" style="display:none;">
             <p class="small" style="margin:0 0 12px;">You will be redirected to WhatsApp to schedule a live recitation with your teacher.</p>
@@ -370,10 +428,18 @@ function openReciteModal(mode) {
     currentMode = mode;
     document.getElementById('reciteModal').classList.add('open');
     document.getElementById('audioPanel').style.display = mode === 'audio' ? 'block' : 'none';
+    document.getElementById('uploadPanel').style.display = mode === 'upload' ? 'block' : 'none';
     document.getElementById('livePanel').style.display = mode === 'live' ? 'block' : 'none';
+    if (mode === 'upload') {
+        document.getElementById('uploadFile').value = '';
+        document.getElementById('uploadPreview').style.display = 'none';
+        document.getElementById('uploadProgress2').style.display = 'none';
+    }
     document.getElementById('reciteModeText').textContent = mode === 'live'
         ? 'Schedule a live recitation session via WhatsApp.'
-        : 'Record yourself reciting this page from memory.';
+        : (mode === 'upload')
+            ? 'Upload a recording you made of this page from memory.'
+            : 'Record yourself reciting this page from memory.';
 }
 
 function closeReciteModal() {
@@ -449,6 +515,48 @@ function sendAudio() {
             document.getElementById('sendAudioBtn').disabled = false;
         });
 }
+
+function submitUpload() {
+    var fileInput = document.getElementById('uploadFile');
+    if (!fileInput.files || fileInput.files.length === 0) return alert('Please choose an audio file first.');
+    var file = fileInput.files[0];
+    var fd = new FormData();
+    fd.append('action', 'audio');
+    fd.append('page_no', <?= $current_page ?>);
+    fd.append('revision_id', <?= (int)($revision['id'] ?? 0) ?>);
+    fd.append('audio', file, file.name);
+    var csrfInput = document.querySelector('[name=csrf_token]');
+    if (csrfInput) fd.append('csrf_token', csrfInput.value);
+
+    document.getElementById('uploadProgress2').style.display = 'block';
+    document.getElementById('uploadProgress2').textContent = 'Uploading ' + file.name + '...';
+
+    fetch('submit_hafiz_session.php', {method: 'POST', body: fd})
+        .then(function(r) { return r.text(); })
+        .then(function(res) {
+            if (res.trim() === 'OK') {
+                location.reload();
+            } else {
+                alert(res);
+                document.getElementById('uploadProgress2').style.display = 'none';
+            }
+        })
+        .catch(function() {
+            alert('Upload failed. Please try again.');
+            document.getElementById('uploadProgress2').style.display = 'none';
+        });
+}
+
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.id === 'uploadFile') {
+        var file = e.target.files[0];
+        var preview = document.getElementById('uploadPreview');
+        if (file && preview) {
+            preview.src = URL.createObjectURL(file);
+            preview.style.display = 'block';
+        }
+    }
+});
 
 function sendLive() {
     var day = document.getElementById('liveDay').value;

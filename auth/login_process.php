@@ -6,7 +6,7 @@ require_once '../config/security/session.php';
 require_once '../config/security/helpers.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email = clean($_POST['email'] ?? '');
+    $email = strtolower(trim($_POST['email'] ?? ''));
     $pass  = $_POST['password'] ?? '';
 
     if (empty($email) || empty($pass)) {

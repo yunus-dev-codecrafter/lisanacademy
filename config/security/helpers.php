@@ -1418,6 +1418,11 @@ if (!function_exists('hafiz_can_recite')) {
             return ['ok' => false, 'reason' => 'You have reached the weekly maximum of 21 pages. Well done! Wait for next week.'];
         }
 
+        // Check weekly test gate (once 20 pages are met, test must pass)
+        if (hafiz_week_test_block_recite($conn, $revision)) {
+            return ['ok' => false, 'reason' => 'Your weekly test must be passed before you can continue reciting. Please visit the Weekly Test page.'];
+        }
+
         // Check week transition
         $transition = hafiz_check_week_transition($conn, $student_id);
         if ($transition['action'] === 'reset') {
@@ -1435,6 +1440,385 @@ if (!function_exists('hafiz_weekly_skip_remaining')) {
     function hafiz_weekly_skip_remaining($conn, $revision_id, $week_no) {
         $pages = hafiz_pages_this_week($conn, $revision_id, $week_no);
         return max(0, 21 - $pages);
+    }
+}
+
+/* =====================================================
+   HAFIZ WEEKLY TEST
+   ===================================================== */
+
+if (!function_exists('hafiz_test_time_limit')) {
+    /**
+     * Weekly test timed limits.
+     *  - time_limit : minutes student has to answer before the test locks.
+     *  - grace      : extra minutes allowed before the draft is voided.
+     *  - total      : combined deadline (20 + 3 = 23 minutes).
+     */
+    function hafiz_test_time_limit() {
+        return [
+            'time_limit' => 20,
+            'grace'      => 3,
+            'total'      => 23,
+        ];
+    }
+}
+
+if (!function_exists('hafiz_test_deadline')) {
+    /**
+     * Return the 'Y-m-d H:i:s' deadline for a started_at value:
+     * started_at + (time limit + grace).
+     */
+    function hafiz_test_deadline($started_at) {
+        $t = hafiz_test_time_limit();
+        return date('Y-m-d H:i:s', strtotime($started_at) + $t['total'] * 60);
+    }
+}
+
+if (!function_exists('hafiz_get_latest_test')) {
+    /**
+     * The most recent hafiz_weekly_tests row for this revision/week, or null.
+     */
+    function hafiz_get_latest_test($conn, $revision_id, $week_no) {
+        $revision_id = (int)$revision_id;
+        $week_no = (int)$week_no;
+        if (!db_table_exists($conn, 'hafiz_weekly_tests')) return null;
+        try {
+            $stmt = $conn->prepare("
+                SELECT * FROM hafiz_weekly_tests
+                WHERE revision_id = ? AND week_no = ?
+                ORDER BY id DESC LIMIT 1
+            ");
+            $stmt->bind_param("ii", $revision_id, $week_no);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            return $r ?: null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('hafiz_expire_stale_draft')) {
+    /**
+     * If the latest test is a draft that has blown past its deadline, mark it
+     * 'expired' (the student must start over). Returns the test row afterwards.
+     */
+    function hafiz_expire_stale_draft($conn, $revision_id, $week_no) {
+        $test = hafiz_get_latest_test($conn, $revision_id, $week_no);
+        if (!$test) return null;
+        if ($test['status'] === 'draft' && strtotime($test['started_at']) < strtotime(date('Y-m-d H:i:s')) - (hafiz_test_time_limit()['total'] * 60)) {
+            try {
+                $stmt = $conn->prepare("UPDATE hafiz_weekly_tests SET status = 'expired' WHERE id = ?");
+                $stmt->bind_param("i", (int)$test['id']);
+                $stmt->execute();
+                $test['status'] = 'expired';
+            } catch (Throwable $e) { /* ignore */ }
+        }
+        return $test;
+    }
+}
+
+if (!function_exists('hafiz_week_test_qualified')) {
+    /**
+     * True when the student may take (or already has) a weekly test for this
+     * revision: 20 pages accepted this week and the week was not skipped.
+     */
+    function hafiz_week_test_qualified($conn, $revision) {
+        if (!$revision) return false;
+        if ((int)($revision['skip_approved'] ?? 0) === 1) return false;
+        $week_no = hafiz_current_week_no($revision);
+        return hafiz_pages_this_week($conn, (int)$revision['id'], $week_no) >= 20;
+    }
+}
+
+if (!function_exists('hafiz_week_test_state')) {
+    /**
+     * State machine for the weekly test of a revision.
+     * Returns ['state' => ..., 'test' => row|null, 'reason' => string].
+     *  - locked     : 20-page quota not met yet (or week skipped).
+     *  - available  : quota met, no pending/active test - can Generate.
+     *  - in_progress: a draft is active (deadline not yet hit).
+     *  - expired    : a draft exists but the deadline passed - must restart.
+     *  - pending    : submitted, awaiting teacher review.
+     *  - passed     : approved for this week.
+     *  - failed     : must retake before continuing to the next week.
+     */
+    function hafiz_week_test_state($conn, $revision) {
+        if (!$revision) return ['state' => 'locked', 'test' => null, 'reason' => 'No active revision cycle.'];
+        if (!hafiz_week_test_qualified($conn, $revision)) {
+            return ['state' => 'locked', 'test' => null, 'reason' => 'Recite 20 pages this week before the weekly test is available.'];
+        }
+
+        $revision_id = (int)$revision['id'];
+        $week_no = hafiz_current_week_no($revision);
+        $test = hafiz_expire_stale_draft($conn, $revision_id, $week_no);
+
+        if (!$test) {
+            return ['state' => 'available', 'test' => null, 'reason' => 'Generate your weekly test to begin. The timer starts immediately.'];
+        }
+
+        switch ($test['status']) {
+            case 'passed':
+                return ['state' => 'passed', 'test' => $test, 'reason' => 'You passed this week\'s test. JazakAllahu khayran!'];
+            case 'failed':
+                return ['state' => 'failed', 'test' => $test, 'reason' => 'Retake this week\'s test to continue reciting.'];
+            case 'submitted':
+                return ['state' => 'pending', 'test' => $test, 'reason' => 'Your test is with the teacher for review.'];
+            case 'expired':
+                return ['state' => 'expired', 'test' => $test, 'reason' => 'Time ran out. Generate a new test to start over.'];
+            case 'draft':
+            default:
+                $deadline = hafiz_test_deadline($test['started_at']);
+                if (strtotime($deadline) < time()) {
+                    return ['state' => 'expired', 'test' => $test, 'reason' => 'Time ran out. Generate a new test to start over.'];
+                }
+                return ['state' => 'in_progress', 'test' => $test, 'reason' => 'Complete this test before the timer runs out.'];
+        }
+    }
+}
+
+if (!function_exists('hafiz_week_test_block_recite')) {
+    /**
+     * True when the weekly-test gate says the student may NOT recite new pages.
+     * Once the 20-page quota is met (and not skipped), a passed test is
+     * required before any further recitation that week.
+     */
+    function hafiz_week_test_block_recite($conn, $revision) {
+        if (!$revision) return false;
+        if ((int)($revision['skip_approved'] ?? 0) === 1) return false;
+        $week_no = hafiz_current_week_no($revision);
+        if (hafiz_pages_this_week($conn, (int)$revision['id'], $week_no) < 20) return false;
+
+        $state = hafiz_week_test_state($conn, $revision);
+        return in_array($state['state'], ['pending', 'failed', 'expired', 'in_progress', 'available'], true);
+    }
+}
+
+if (!function_exists('hafiz_page_verse_span')) {
+    /**
+     * Resolve the verse span actually covered by a single physical page using
+     * the quran_pages index. Returns ['start' => ['surah'=>, 'verse'=>],
+     * 'end' => ['surah'=>, 'verse'=>]] or null if the page is unknown.
+     */
+    function hafiz_page_verse_span($conn, $page_no) {
+        $page_no = (int)$page_no;
+        if (!db_table_exists($conn, 'quran_pages')) return null;
+        try {
+            $stmt = $conn->prepare("SELECT page_no, surah_id, verse FROM quran_pages WHERE page_no = ? OR page_no = ? ORDER BY page_no ASC");
+            $nxt = $page_no + 1;
+            $stmt->bind_param("ii", $page_no, $nxt);
+            $stmt->execute();
+            $rows = $stmt->get_result();
+            $cur = null;
+            $next = null;
+            while ($r = $rows->fetch_assoc()) {
+                if ((int)$r['page_no'] === $page_no) $cur = $r;
+                elseif ((int)$r['page_no'] === $nxt) $next = $r;
+            }
+            if (!$cur) return null;
+            if ($next) {
+                return [
+                    'start' => ['surah' => (int)$cur['surah_id'], 'verse' => (int)$cur['verse']],
+                    'end'   => ['surah' => (int)$next['surah_id'], 'verse' => (int)$next['verse'] - 1],
+                ];
+            }
+            // Last page (604): ends at the end of its surah.
+            $s = $conn->prepare("SELECT total_verses FROM surahs WHERE id = ? LIMIT 1");
+            $s->bind_param("i", (int)$cur['surah_id']);
+            $s->execute();
+            $tv = $s->get_result()->fetch_assoc();
+            return [
+                'start' => ['surah' => (int)$cur['surah_id'], 'verse' => (int)$cur['verse']],
+                'end'   => ['surah' => (int)$cur['surah_id'], 'verse' => (int)($tv['total_verses'] ?? 1)],
+            ];
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('hafiz_accepted_pages')) {
+    /**
+     * Ordered list of page numbers accepted so far in the given revision cycle.
+     */
+    function hafiz_accepted_pages($conn, $revision_id) {
+        $revision_id = (int)$revision_id;
+        if (!db_table_exists($conn, 'hafiz_sessions')) return [];
+        try {
+            $stmt = $conn->prepare("SELECT DISTINCT page_no FROM hafiz_sessions WHERE revision_id = ? AND status = 'accepted' ORDER BY page_no ASC");
+            $stmt->bind_param("i", $revision_id);
+            $stmt->execute();
+            $out = [];
+            $rows = $stmt->get_result();
+            while ($r = $rows->fetch_assoc()) $out[] = (int)$r['page_no'];
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+}
+
+if (!function_exists('hafiz_generate_questions')) {
+    /**
+     * Build up to $count random verse-window questions (each >= 10 verses)
+     * from the surahs covered by the student's accepted pages.
+     * Returns a list of ['page_no','surah_id','from_verse','to_verse'].
+     */
+    function hafiz_generate_questions($conn, $revision_id, $count = 3) {
+        $count = (int)$count;
+        if ($count <= 0) return [];
+        $pages = hafiz_accepted_pages($conn, $revision_id);
+        if (!$pages) return [];
+
+        // Gather candidate (surah, from, to) windows of >= 10 verses from accepted pages.
+        $candidates = [];
+        foreach ($pages as $pn) {
+            $span = hafiz_page_verse_span($conn, $pn);
+            if (!$span) continue;
+            $start_s = (int)$span['start']['surah'];
+            $start_v = (int)$span['start']['verse'];
+            $end_s = (int)$span['end']['surah'];
+            $end_v = (int)$span['end']['verse'];
+
+            // Build surah-bounded segments within this page's span.
+            $s = $start_s;
+            $v = $start_v;
+            $guard = 0;
+            while ($guard < 150) {
+                $guard++;
+                $tv = 0;
+                $q = $conn->prepare("SELECT total_verses FROM surahs WHERE id = ? LIMIT 1");
+                $q->bind_param("i", $s);
+                $q->execute();
+                $rr = $q->get_result()->fetch_assoc();
+                $tv = (int)($rr['total_verses'] ?? 0);
+                if ($tv < 1) { $s++; $v = 1; continue; }
+
+                $seg_to = ($s === $end_s) ? $end_v : $tv;
+                $seg_len = $seg_to - $v + 1;
+                if ($seg_len >= 10) {
+                    // Random window inside this segment.
+                    $max_range = min(15, $seg_len);
+                    $range = rand(10, $max_range);
+                    $max_start = $seg_len - $range + 1;
+                    $st = $v + ($max_start > 1 ? rand(0, $max_start - 1) : 0);
+                    $candidates[] = [
+                        'page_no'    => $pn,
+                        'surah_id'   => $s,
+                        'from_verse' => $st,
+                        'to_verse'   => $st + $range - 1,
+                    ];
+                }
+
+                if ($s === $end_s) break;
+                $s++;
+                $v = 1;
+            }
+        }
+
+        shuffle($candidates);
+        $unique = [];
+        foreach ($candidates as $c) {
+            $key = $c['page_no'] . '-' . $c['surah_id'] . '-' . $c['from_verse'] . '-' . $c['to_verse'];
+            if (isset($unique[$key])) continue;
+            $unique[$key] = $c;
+            if (count($unique) >= $count) break;
+        }
+
+        return array_values($unique);
+    }
+}
+
+if (!function_exists('hafiz_create_weekly_test')) {
+    /**
+     * Create a fresh draft weekly test for the revision's current week with
+     * $count random questions. Returns the new test row or null on failure.
+     * Stale drafts for the same week are voided first.
+     */
+    function hafiz_create_weekly_test($conn, $student_id, $revision, $count = 3) {
+        if (!$revision) return null;
+        $student_id = (int)$student_id;
+        $revision_id = (int)$revision['id'];
+        $week_no = hafiz_current_week_no($revision);
+
+        // Void any stale draft so only one active test exists per week.
+        foreach (['draft', 'expired'] as $st) {
+            $stmt = $conn->prepare("UPDATE hafiz_weekly_tests SET status = 'expired' WHERE revision_id = ? AND week_no = ? AND status = ?");
+            $stmt->bind_param("iis", $revision_id, $week_no, $st);
+            $stmt->execute();
+        }
+
+        $now = date('Y-m-d H:i:s');
+        $stmt = $conn->prepare("INSERT INTO hafiz_weekly_tests (student_id, revision_id, week_no, status, started_at) VALUES (?, ?, ?, 'draft', ?)");
+        $stmt->bind_param("iiis", $student_id, $revision_id, $week_no, $now);
+        if (!$stmt->execute()) return null;
+        $test_id = (int)$conn->insert_id;
+
+        $questions = hafiz_generate_questions($conn, $revision_id, $count);
+        $ins = $conn->prepare("INSERT INTO hafiz_test_answers (test_id, page_no, surah_id, from_verse, to_verse, status) VALUES (?, ?, ?, ?, ?, 'pending')");
+        foreach ($questions as $q) {
+            $ins->bind_param("iiiii", $test_id, $q['page_no'], $q['surah_id'], $q['from_verse'], $q['to_verse']);
+            $ins->execute();
+        }
+
+        return hafiz_get_latest_test($conn, $revision_id, $week_no);
+    }
+}
+
+if (!function_exists('hafiz_week_test_answers')) {
+    /**
+     * All answer rows of a weekly test (join surah names), ordered by id.
+     */
+    function hafiz_week_test_answers($conn, $test_id) {
+        $test_id = (int)$test_id;
+        if (!db_table_exists($conn, 'hafiz_test_answers')) return [];
+        try {
+            $stmt = $conn->prepare("
+                SELECT a.*, s.name_en AS surah_name, s.name_ar AS surah_name_ar
+                FROM hafiz_test_answers a
+                JOIN surahs s ON s.id = a.surah_id
+                WHERE a.test_id = ?
+                ORDER BY a.id ASC
+            ");
+            $stmt->bind_param("i", $test_id);
+            $stmt->execute();
+            $out = [];
+            $rows = $stmt->get_result();
+            while ($r = $rows->fetch_assoc()) $out[] = $r;
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+}
+
+if (!function_exists('hafiz_test_result_for_student')) {
+    /**
+     * Convenience wrapper for dashboard/hafiz_revision card rendering.
+     * Returns ['state', 'test', 'deadline', 'started_at', 'question_count'].
+     */
+    function hafiz_test_result_for_student($conn, $revision) {
+        $st = hafiz_week_test_state($conn, $revision);
+        $q_count = 0;
+        if ($st['test']) {
+            $test_id = (int)$st['test']['id'];
+            if (db_table_exists($conn, 'hafiz_test_answers')) {
+                try {
+                    $stmt = $conn->prepare("SELECT COUNT(*) c FROM hafiz_test_answers WHERE test_id = ?");
+                    $stmt->bind_param("i", $test_id);
+                    $stmt->execute();
+                    $q_count = (int)$stmt->get_result()->fetch_assoc()['c'];
+                } catch (Throwable $e) { /* ignore */ }
+            }
+        }
+        return [
+            'state'          => $st['state'],
+            'reason'         => $st['reason'],
+            'test'           => $st['test'],
+            'deadline'       => $st['test'] ? hafiz_test_deadline($st['test']['started_at']) : null,
+            'started_at'     => $st['test'] ? $st['test']['started_at'] : null,
+            'question_count' => $q_count,
+        ];
     }
 }
 

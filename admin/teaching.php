@@ -104,6 +104,29 @@ if (db_table_exists($conn, 'hafiz_sessions')) {
         ORDER BY hs.submitted_at ASC
     ");
 }
+
+/* ----------------------
+   Section E: Hafiz Weekly Tests
+---------------------- */
+$hafiz_tests = null;
+if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafiz_test_answers')) {
+    $hafiz_tests = $conn->query("
+        SELECT
+            t.id AS test_id,
+            t.student_id,
+            t.week_no,
+            t.status,
+            t.started_at,
+            t.submitted_at,
+            u.name AS student_name,
+            u.email AS student_email,
+            (SELECT COUNT(*) FROM hafiz_test_answers a WHERE a.test_id = t.id) AS q_count
+        FROM hafiz_weekly_tests t
+        JOIN users u ON u.id = t.student_id
+        WHERE t.status = 'submitted'
+        ORDER BY t.submitted_at ASC
+    ");
+}
 ?>
 <!DOCTYPE html>
 <html>
@@ -333,6 +356,7 @@ if (db_table_exists($conn, 'hafiz_sessions')) {
 
     <form method="POST" action="review_hafiz_session.php" enctype="multipart/form-data" style="margin-top:6px;">
         <input type="hidden" name="session_id" value="<?= (int)$hs['session_id'] ?>">
+        <?= csrf_field() ?>
 
         <div class="grid-2">
             <div class="form-group">
@@ -364,6 +388,15 @@ if (db_table_exists($conn, 'hafiz_sessions')) {
         </div>
     </form>
 
+    <div class="left-block" style="margin-top:10px;">
+        <form method="POST" action="delete_hafiz_session.php"
+              onsubmit="return confirm('Delete this Hafiz session permanently? The student will need to recite this page again.');">
+            <input type="hidden" name="session_id" value="<?= (int)$hs['session_id'] ?>">
+            <?= csrf_field() ?>
+            <button type="submit" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border);"><?= ui_icon('trash', 15) ?> Delete Session</button>
+        </form>
+    </div>
+
 </div>
 <?php endwhile; ?>
 <?php else: ?>
@@ -371,6 +404,52 @@ if (db_table_exists($conn, 'hafiz_sessions')) {
         <div class="empty-icon"><?= ui_icon('check-circle', 40) ?></div>
         <div class="empty-title">No pending Hafiz sessions</div>
         <p class="small" style="margin:0;">Hafiz revision recitations awaiting your review will appear here.</p>
+    </div>
+    <?php endif; ?>
+<?php endif; ?>
+
+<!-- =====================
+     Section E: Hafiz Weekly Tests
+===================== -->
+<?php if ($hafiz_tests): ?>
+<h2 class="mt-3 animate-rise d5" style="display:flex;align-items:center;gap:10px;">
+    <span class="badge" style="background:linear-gradient(135deg,#d97706,#f59e0b);">E</span> Hafiz Weekly Tests — Awaiting Review
+</h2>
+
+<?php if ($hafiz_tests->num_rows > 0): ?>
+<?php while ($ht = $hafiz_tests->fetch_assoc()): ?>
+<div class="card animate-rise d5">
+
+    <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
+        <h3 style="margin:0;"><?= htmlspecialchars($ht['student_name']) ?></h3>
+        <span class="small text-muted"><?= htmlspecialchars($ht['student_email']) ?></span>
+    </div>
+
+    <p class="small">
+        <span class="badge badge-blue">Week <?= (int)$ht['week_no'] ?></span>
+        &nbsp;· <span class="badge badge-gold">Awaiting Review</span>
+        &nbsp;· <?= (int)$ht['q_count'] ?> question<?= (int)$ht['q_count'] === 1 ? '' : 's' ?>
+        &nbsp;· Started <?= $ht['started_at'] ? date('d M Y, g:i A', strtotime($ht['started_at'])) : '—' ?>
+        &nbsp;· Submitted <?= $ht['submitted_at'] ? date('d M Y, g:i A', strtotime($ht['submitted_at'])) : '—' ?>
+    </p>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <a class="btn btn-gold" href="review_hafiz_test.php?id=<?= (int)$ht['test_id'] ?>"><?= ui_icon('gavel', 16) ?> Review Test</a>
+        <form method="POST" action="delete_hafiz_test.php"
+              onsubmit="return confirm('Delete this weekly test permanently? The student will need to generate a new one.');">
+            <input type="hidden" name="test_id" value="<?= (int)$ht['test_id'] ?>">
+            <?= csrf_field() ?>
+            <button type="submit" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border);"><?= ui_icon('trash', 15) ?> Delete Test</button>
+        </form>
+    </div>
+
+</div>
+<?php endwhile; ?>
+<?php else: ?>
+    <div class="empty animate-rise d5">
+        <div class="empty-icon"><?= ui_icon('check-circle', 40) ?></div>
+        <div class="empty-title">No pending weekly tests</div>
+        <p class="small" style="margin:0;">Hafiz weekly tests awaiting your review will appear here.</p>
     </div>
 <?php endif; ?>
 <?php endif; ?>

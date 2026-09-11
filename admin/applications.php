@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'activate' && $id > 0) {
         /* Turn an approved application into an actual student account. */
         $name     = trim($_POST['name'] ?? '');
-        $email    = trim($_POST['email'] ?? '');
+        $email    = strtolower(trim($_POST['email'] ?? ''));
         $pass     = $_POST['password'] ?? '';
         $phone    = trim($_POST['phone'] ?? '');
         $hafiz    = (int)($_POST['hafiz'] ?? 0);

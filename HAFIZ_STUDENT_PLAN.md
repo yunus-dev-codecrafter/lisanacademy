@@ -238,3 +238,52 @@ These are essential to prevent Hafiz from being wrongly flagged/locked:
 4. **Student revision flow** — hafiz_revision.php, submit_hafiz_session.php, dashboard branch, redirects from old learning pages.
 5. **Teacher review** — review_hafiz_session.php, teaching.php Section D.
 6. **Polish** — badges, filters, empty states, WhatsApp live scheduling for Hafiz.
+
+---
+
+## 11. Recording Upload Option (skip in-browser recording)
+
+Hafiz students can now **either** record in-browser (existing MediaRecorder flow) **or upload a locally recorded audio file** for a page recitation.
+
+- `student/hafiz_revision.php` recite modal has a 3rd option: **Upload Recording** → file input + `<audio>` preview → posts `action=audio` with the `audio` file.
+- Reuses the **existing** `submit_hafiz_session.php` audio path — no server handler changes were needed.
+- Useful for students on slower devices/browsers or who prefer recording in a dedicated app first (e.g., iPhone Voice Memos).
+
+## 12. Weekly Friday Test (Pass/Fail) + Retake Gate
+
+After reciting the week's 20 pages, a Hafiz takes a **3-question weekly test** on the passages already completed. The teacher listens and marks **Pass or Fail**. If the student fails, they **cannot recite new pages until they pass a retake**.
+
+### Rules (confirmed)
+- Test is available **any day** once the student has met 20 pages in the current week.
+- **3 questions** per test — randomly drawn from **completed (accepted) pages** in the current cycle, via `config/quran_pages_data.php` (604-page Madani Mushaf page → surah/verse map).
+- Each question is a window of **≥10 consecutive verses** from one accepted page (X to Y wrapping rolls over to the next page if near the end).
+- **Time limit:** 20 minutes answering + 3 minutes grace to submit (total 23 min). The question text stays hidden until the student clicks **Generate Weekly Test**; the timer starts immediately at that moment.
+- If time expires without submission → the draft is marked `expired` and the student starts over with a **fresh set of random questions**.
+- Pass/Fail only (no rating / mistake-count). Teacher may optionally attach text feedback **and/or an audio feedback file**.
+- A **failed** result blocks new-page recitation until a retake passes (applied inside `hafiz_can_recite()`). A **pass** unlocks the next pages.
+- `skip_approved` bypasses the test/recitation gate entirely.
+
+### Storage
+- `uploads/hafiz_test_audio/` — student answer recordings.
+- `uploads/admin_feedback/` — optional teacher audio feedback.
+
+### New files
+| File | Purpose |
+|---|---|
+| `admin/db_migrate11.php` | Migration: `quran_pages` + `hafiz_weekly_tests` + `hafiz_test_answers` (idempotent, loads 604 page rows) |
+| `config/quran_pages_data.php` | 604-page Madani Mushaf page index (`page => surah, verse`) used for question generation |
+| `student/start_hafiz_test.php` | POST handler — validates quota, voids stale/expired drafts, generates a fresh draft test + 3 random questions |
+| `student/submit_hafiz_test.php` | POST handler — enforces 23-min deadline, saves 3 audio answers, marks test submitted |
+| `student/hafiz_test.php` | Student state machine page: locked / available (generate) / expired (restart) / in_progress (record + upload, countdown timer) / pending / passed / failed (retake) |
+| `admin/review_hafiz_test.php` | Teacher review — plays answers, Pass/Fail decision, text + audio feedback |
+| `admin/hafiz_tests.php` | Admin list of all weekly tests, filterable by status |
+
+### Modified files
+| File | Change |
+|---|---|
+| `student/hafiz_revision.php` | Added "Upload Recording" option in recite modal + Weekly Test status card linking to `hafiz_test.php` |
+| `admin/teaching.php` | Added Section E: Hafiz Weekly Tests awaiting review |
+| `config/security/helpers.php` | Added ~13 weekly-test helpers + recitation gate in `hafiz_can_recite()` |
+
+### Migration notes
+- `admin/db_migrate11.php` must be run (in browser) on any existing install alongside `db_migrate10.php`.

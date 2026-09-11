@@ -47,6 +47,13 @@ $surahs = $conn->query("SELECT id, name_en FROM surahs ORDER BY id");
 
 <div style="padding:6px 0;">
 
+    <?php if (isset($_GET['password_reset'])): ?>
+        <div class="alert alert-success" style="margin-bottom:12px;"><?= ui_icon('check-circle', 16) ?> Password updated. Share the new password with the student privately.</div>
+    <?php endif; ?>
+    <?php if (!empty($_GET['error'])): ?>
+        <div class="alert alert-danger" style="margin-bottom:12px;"><?= htmlspecialchars($_GET['error']) ?></div>
+    <?php endif; ?>
+
     <h2 style="margin:0 0 4px;"><?=htmlspecialchars($student['name'])?></h2>
     <p class="small text-muted" style="margin:0 0 12px;"><?=htmlspecialchars($student['email'])?></p>
     <?php if ($is_hafiz): ?>
@@ -131,6 +138,20 @@ $surahs = $conn->query("SELECT id, name_en FROM surahs ORDER BY id");
             <button class="btn btn-sm" type="submit"><?= ui_icon('check', 15) ?> Save Name</button>
         </form>
         <p class="small text-muted" style="margin:6px 0 0;">Only request/change this when the student asks.</p>
+    </div>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
+
+    <!-- Reset Password -->
+    <div class="form-group">
+        <label class="form-label">Reset Password</label>
+        <form method="POST" action="reset_password.php" style="display:flex;flex-direction:column;gap:8px;">
+            <?= csrf_field() ?>
+            <input type="hidden" name="student_id" value="<?=$student_id?>">
+            <input class="form-input" type="text" name="password" placeholder="New password (at least 6 characters)" required minlength="6" autocomplete="off">
+            <button class="btn btn-block" type="submit"><?= ui_icon('lock', 15) ?> Set New Password</button>
+        </form>
+        <p class="small text-muted" style="margin:6px 0 0;">Use this if the student cannot log in. Share the new password privately — old logins stop working immediately.</p>
     </div>
 
     <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">

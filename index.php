@@ -280,6 +280,11 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
                 <h3>Certificates</h3>
                 <p>Receive beautiful certificates whenever you successfully complete a Surah.</p>
             </div>
+            <div class="feature-card">
+                <span class="f-ico g"><?= ui_icon('refresh', 22) ?></span>
+                <h3>Hafiz Revision Track</h3>
+                <p>Already a Hafiz? Revise the entire Qur'an from memory — page by page, 20 pages every week, with a short weekly test to keep you sharp.</p>
+            </div>
         </div>
     </div>
 </section>
@@ -462,6 +467,10 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
                 <span class="ai"><?= ui_icon('users', 18) ?></span>
                 <div><b>Anyone, Anywhere</b><p>Learn online from home with a supportive community around you.</p></div>
             </div>
+            <div class="aud-item">
+                <span class="ai"><?= ui_icon('refresh', 18) ?></span>
+                <div><b>Hafiz of the Qur'an</b><p>Revise from memory with a structured page-by-page plan — 20 pages each week and a short weekly test to keep your memorization strong.</p></div>
+            </div>
         </div>
     </div>
 </section>
@@ -474,6 +483,11 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
             <h2>Frequently Asked Questions</h2>
         </div>
         <div class="faq-wrap" id="faqWrap">
+
+            <div class="faq-item">
+                <button class="faq-q" type="button">I've already memorised the Qur'an — is this for me?<span class="chev"><?= ui_icon('chevron-down', 18) ?></span></button>
+                <div class="faq-a"><div class="faq-a-inner">Yes! Hafiz of the Qur'an have a dedicated <strong>revision track</strong>: you revise the full Qur'an from memory, 20 pages every week, with a short weekly test on what you've revised. Your teacher listens to your recitation and marks each test <strong>Pass or Fail</strong>, so your memorization stays sharp.</div></div>
+            </div>
 
             <div class="faq-item">
                 <button class="faq-q" type="button">How much is the fee?<span class="chev"><?= ui_icon('chevron-down', 18) ?></span></button>
