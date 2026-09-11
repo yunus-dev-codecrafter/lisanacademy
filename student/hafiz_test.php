@@ -29,7 +29,7 @@ if (!$revision) {
 $state = hafiz_week_test_state($conn, $revision);
 $mode = $state['state'];
 $test = $state['test'];
-$juz_no = hafiz_current_week_no($revision);
+$juz_no = hafiz_test_juz($conn, $revision);
 
 /* Question rows for in-progress / pending / passed / failed states */
 $questions = [];

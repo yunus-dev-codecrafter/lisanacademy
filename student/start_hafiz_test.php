@@ -33,7 +33,7 @@ if (!$revision) {
 // review (available / failed / expired).
 $test_state = hafiz_week_test_state($conn, $revision);
 if (!in_array($test_state['state'], ['available', 'failed', 'expired'], true)) {
-    ui_message_page('warning', 'Test Locked', 'The weekly test unlocks once every page of your current Juz is accepted and approved by your teacher.', 'hafiz_revision.php', 'Hafiz Revision', 'close');
+    ui_message_page('warning', 'Test Locked', $test_state['reason'], 'hafiz_revision.php', 'Hafiz Revision', 'close');
     exit;
 }
 

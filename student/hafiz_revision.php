@@ -55,6 +55,7 @@ if (!$revision) {
     $current_page = 1;
     $required_page = 1;
     $juz_no = 1;
+    $pending_test_juz = 1;
     $this_week_pages = 0;
     $weekly_remaining = 24;
     $completed_cycles = hafiz_completed_cycles_count($conn, $student_id);
@@ -64,6 +65,7 @@ if (!$revision) {
     $current_page = (int)$revision['current_page'];
     $required_page = hafiz_required_page($conn, $revision);
     $juz_no = hafiz_current_week_no($revision);
+    $pending_test_juz = hafiz_test_juz($conn, $revision);
     $revision_id = (int)$revision['id'];
 
     $this_week_pages = hafiz_pages_this_week($conn, $revision_id);
@@ -258,7 +260,7 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
 <?php if ($revision && hafiz_week_test_qualified($conn, $revision)): ?>
 <div class="card animate-rise d1" style="border:1px solid var(--gold-300, #fbbf24);">
     <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-        <h3 style="margin:0;"><?= ui_icon('calendar-check', 18) ?> Weekly Test — Juz <?= $juz_no ?></h3>
+        <h3 style="margin:0;"><?= ui_icon('calendar-check', 18) ?> Weekly Test — Juz <?= $pending_test_juz ?></h3>
         <?php if ($test_summary['state'] === 'passed'): ?>
             <span class="badge badge-green"><?= ui_icon('check-circle', 13) ?> Passed</span>
         <?php elseif ($test_summary['state'] === 'pending'): ?>

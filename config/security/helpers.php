@@ -1327,6 +1327,30 @@ if (!function_exists('hafiz_current_week_no')) {
     }
 }
 
+if (!function_exists('hafiz_test_juz')) {
+    /**
+     * The juz whose weekly test is currently relevant. Normally the juz the
+     * revision pointer is inside (hafiz_current_week_no). BUT once current_page
+     * rolls past the end of a completed juz (e.g. page 21 accepted -> pointer
+     * at page 22, the first page of juz 2), the relevant test is the PREVIOUS
+     * juz's — that juz was just approved by the teacher and must be passed
+     * before the new juz unlocks.
+     */
+    function hafiz_test_juz($conn, $revision) {
+        if (!$revision) return 0;
+        $current_page = (int)($revision['current_page'] ?? 1);
+        $juz = hafiz_juz_of_page($current_page);
+        if ($juz > 1 && $current_page === hafiz_juz_range($juz)[0]) {
+            // Sitting on the first page of a new juz — the relevant test is
+            // always the PREVIOUS juz's (finished but must be tested to open
+            // this one). Whether that juz is fully approved yet is decided by
+            // the state machine below.
+            return $juz - 1;
+        }
+        return $juz;
+    }
+}
+
 if (!function_exists('hafiz_pages_this_week')) {
     /**
      * Count of distinct pages recited (submitted) in the current CALENDAR week
@@ -1764,25 +1788,25 @@ if (!function_exists('hafiz_expire_stale_draft')) {
 
 if (!function_exists('hafiz_week_test_qualified')) {
     /**
-     * True when the student may take (or already has) the weekly test for their
-     * current juz: every page of the juz must be accepted by the teacher, and
-     * the juz's test must not already be passed or with the teacher.
+     * True when the weekly test for the relevant juz (hafiz_test_juz) may be
+     * shown / taken: the juz is fully accepted by the teacher. The test's own
+     * status (passed/pending/failed/etc.) is handled separately by the state
+     * machine.
      */
     function hafiz_week_test_qualified($conn, $revision) {
         if (!$revision) return false;
         $revision_id = (int)$revision['id'];
-        $juz = hafiz_current_week_no($revision);
-        $test = hafiz_get_latest_test($conn, $revision_id, $juz);
-        if ($test && in_array($test['status'], ['passed', 'submitted'], true)) return false;
+        $juz = hafiz_test_juz($conn, $revision);
+        if ($juz <= 0) return false;
         return hafiz_juz_complete($conn, $revision_id, $juz);
     }
 }
 
 if (!function_exists('hafiz_week_test_state')) {
     /**
-     * State machine for the weekly test of the revision's current juz.
+     * State machine for the weekly test of the relevant juz (hafiz_test_juz).
      * Returns ['state' => ..., 'test' => row|null, 'reason' => string].
-     *  - locked     : current juz not fully accepted by the teacher yet.
+     *  - locked     : relevant juz not fully accepted by the teacher yet.
      *  - available  : juz complete, no pending/active test - can Generate.
      *  - in_progress: a draft is active (deadline not yet hit).
      *  - expired    : a draft exists but the deadline passed - must restart.
@@ -1792,12 +1816,44 @@ if (!function_exists('hafiz_week_test_state')) {
      */
     function hafiz_week_test_state($conn, $revision) {
         if (!$revision) return ['state' => 'locked', 'test' => null, 'reason' => 'No active revision cycle.'];
-        if (!hafiz_week_test_qualified($conn, $revision)) {
-            return ['state' => 'locked', 'test' => null, 'reason' => 'Finish every page of your current Juz so your teacher can approve it — then your weekly test unlocks.'];
-        }
 
         $revision_id = (int)$revision['id'];
-        $week_no = hafiz_current_week_no($revision);
+        $week_no = hafiz_test_juz($conn, $revision);
+
+        if ($week_no <= 0) {
+            return ['state' => 'locked', 'test' => null, 'reason' => 'No active revision cycle.'];
+        }
+
+        if (!hafiz_juz_complete($conn, $revision_id, $week_no)) {
+            $p = hafiz_juz_progress($conn, $revision_id, $week_no);
+            $reason = "Your teacher must approve every page of Juz {$week_no} before the weekly test unlocks. Accepted: {$p['accepted']}/{$p['total']} pages of Juz {$week_no}.";
+
+            // List the exact pages still not accepted, with their review status,
+            // so the teacher knows precisely what to approve.
+            $rng = hafiz_juz_range($week_no);
+            $missing = [];
+            if (db_table_exists($conn, 'hafiz_sessions')) {
+                try {
+                    $stmt = $conn->prepare("SELECT page_no, status FROM hafiz_sessions WHERE revision_id = ? AND page_no >= ? AND page_no <= ?");
+                    $stmt->bind_param("iii", $revision_id, $rng[0], $rng[1]);
+                    $stmt->execute();
+                    $byPage = [];
+                    $rows = $stmt->get_result();
+                    while ($row = $rows->fetch_assoc()) $byPage[(int)$row['page_no']] = $row['status'];
+                    for ($pg = $rng[0]; $pg <= $rng[1]; $pg++) {
+                        if (!isset($byPage[$pg])) {
+                            $missing[] = "page $pg (not recited yet)";
+                        } elseif ($byPage[$pg] !== 'accepted') {
+                            $missing[] = "page $pg ({$byPage[$pg]})";
+                        }
+                    }
+                } catch (Throwable $e) { /* ignore */ }
+            }
+            if ($missing) $reason .= ' Still to approve: ' . implode(', ', $missing) . '.';
+
+            return ['state' => 'locked', 'test' => null, 'reason' => $reason];
+        }
+
         $test = hafiz_expire_stale_draft($conn, $revision_id, $week_no);
 
         if (!$test) {
@@ -2005,7 +2061,8 @@ if (!function_exists('hafiz_create_weekly_test')) {
         if (!$revision) return null;
         $student_id = (int)$student_id;
         $revision_id = (int)$revision['id'];
-        $week_no = hafiz_current_week_no($revision);
+        $week_no = hafiz_test_juz($conn, $revision);
+        if ($week_no <= 0) return null;
 
         // Void any stale draft so only one active test exists per week.
         foreach (['draft', 'expired'] as $st) {

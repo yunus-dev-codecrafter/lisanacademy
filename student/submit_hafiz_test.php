@@ -29,7 +29,7 @@ if (!$revision) {
 }
 
 // Resolve the current week's test (must be an in-progress draft)
-$test = hafiz_get_latest_test($conn, (int)$revision['id'], hafiz_current_week_no($revision));
+$test = hafiz_get_latest_test($conn, (int)$revision['id'], hafiz_test_juz($conn, $revision));
 if (!$test || $test['status'] !== 'draft' || (int)$test['student_id'] !== $student_id) {
     echo 'No active weekly test found.';
     exit;

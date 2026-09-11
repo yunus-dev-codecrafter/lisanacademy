@@ -101,7 +101,8 @@ $surahs = $conn->query("SELECT id, name_en FROM surahs ORDER BY id");
             $juz_no = hafiz_current_week_no($rev);
             $pages = hafiz_pages_this_week($conn, (int)$rev['id']);
             $juz_p = hafiz_juz_progress($conn, (int)$rev['id'], $juz_no);
-            $juz_test = hafiz_get_latest_test($conn, (int)$rev['id'], $juz_no);
+            $juz_test_juz = hafiz_test_juz($conn, $rev);
+            $juz_test = hafiz_get_latest_test($conn, (int)$rev['id'], $juz_test_juz);
             ?>
             <div class="panel" style="margin:0;">
                 <p class="small" style="margin:0 0 8px;"><strong>Cycle #<?= (int)$rev['cycle_no'] ?></strong> · Juz <?= $juz_no ?> · Page <?= (int)$rev['current_page'] ?> / 604</p>
