@@ -1871,6 +1871,25 @@ if (!function_exists('hafiz_week_test_state')) {
                 return ['state' => 'expired', 'test' => $test, 'reason' => 'Time ran out. Generate a new test to start over.'];
             case 'draft':
             default:
+                // A draft with no questions is a dead-end (nothing to answer and
+                // no way to finish) — expire it so the student can regenerate.
+                if (db_table_exists($conn, 'hafiz_test_answers')) {
+                    $cnt = -1;
+                    try {
+                        $stmt = $conn->prepare("SELECT COUNT(*) c FROM hafiz_test_answers WHERE test_id = ?");
+                        $stmt->bind_param("i", (int)$test['id']);
+                        $stmt->execute();
+                        $cnt = (int)$stmt->get_result()->fetch_assoc()['c'];
+                    } catch (Throwable $e) { /* ignore */ }
+                    if ($cnt === 0) {
+                        try {
+                            $u = $conn->prepare("UPDATE hafiz_weekly_tests SET status = 'expired' WHERE id = ?");
+                            $u->bind_param("i", (int)$test['id']);
+                            $u->execute();
+                        } catch (Throwable $e) { /* ignore */ }
+                        return ['state' => 'expired', 'test' => $test, 'reason' => 'Your previous test had no questions. Generate a fresh weekly test to begin.'];
+                    }
+                }
                 $deadline = hafiz_test_deadline($test['started_at']);
                 if (strtotime($deadline) < time()) {
                     return ['state' => 'expired', 'test' => $test, 'reason' => 'Time ran out. Generate a new test to start over.'];
@@ -1893,46 +1912,89 @@ if (!function_exists('hafiz_week_test_block_recite')) {
     }
 }
 
+if (!function_exists('hafiz_surah_verse_count')) {
+    /**
+     * Total verses of a surah, preferring the surahs table but falling back to a
+     * static Madani count so question generation still works if the DB row lacks
+     * total_verses (e.g. after an incomplete migration).
+     */
+    function hafiz_surah_verse_count($conn, $surah_id) {
+        $surah_id = (int)$surah_id;
+        if ($surah_id < 1 || $surah_id > 114) return 0;
+        if (db_table_exists($conn, 'surahs')) {
+            try {
+                $s = $conn->prepare("SELECT total_verses FROM surahs WHERE id = ? LIMIT 1");
+                $s->bind_param("i", $surah_id);
+                $s->execute();
+                $tv = (int)($s->get_result()->fetch_assoc()['total_verses'] ?? 0);
+                if ($tv > 0) return $tv;
+            } catch (Throwable $e) { /* ignore */ }
+        }
+        static $counts = [1=>7,2=>286,3=>200,4=>176,5=>120,6=>165,7=>206,8=>75,9=>129,10=>109,11=>123,12=>111,13=>43,14=>52,15=>99,16=>128,17=>111,18=>110,19=>98,20=>135,21=>112,22=>78,23=>118,24=>64,25=>77,26=>227,27=>93,28=>88,29=>69,30=>60,31=>34,32=>30,33=>73,34=>54,35=>45,36=>83,37=>182,38=>88,39=>75,40=>85,41=>54,42=>53,43=>89,44=>59,45=>37,46=>35,47=>38,48=>29,49=>18,50=>45,51=>60,52=>49,53=>62,54=>55,55=>78,56=>96,57=>29,58=>22,59=>24,60=>13,61=>14,62=>11,63=>11,64=>18,65=>12,66=>12,67=>30,68=>52,69=>52,70=>44,71=>28,72=>28,73=>20,74=>56,75=>40,76=>31,77=>50,78=>40,79=>46,80=>42,81=>29,82=>19,83=>36,84=>25,85=>22,86=>17,87=>19,88=>26,89=>30,90=>20,91=>15,92=>21,93=>11,94=>8,95=>8,96=>19,97=>5,98=>8,99=>8,100=>11,101=>11,102=>8,103=>3,104=>9,105=>5,106=>4,107=>7,108=>3,109=>6,110=>3,111=>5,112=>4,113=>5,114=>6];
+        return $counts[$surah_id] ?? 0;
+    }
+}
+
 if (!function_exists('hafiz_page_verse_span')) {
     /**
      * Resolve the verse span actually covered by a single physical page using
-     * the quran_pages index. Returns ['start' => ['surah'=>, 'verse'=>],
-     * 'end' => ['surah'=>, 'verse'=>]] or null if the page is unknown.
+     * the quran_pages index, with a fallback to the static
+     * config/quran_pages_data.php map so question generation never silently
+     * depends on the DB table being populated. Returns
+     * ['start' => ['surah'=>, 'verse'=>], 'end' => ['surah'=>, 'verse'=>]]
+     * or null if the page is unknown.
      */
     function hafiz_page_verse_span($conn, $page_no) {
         $page_no = (int)$page_no;
-        if (!db_table_exists($conn, 'quran_pages')) return null;
-        try {
-            $stmt = $conn->prepare("SELECT page_no, surah_id, verse FROM quran_pages WHERE page_no = ? OR page_no = ? ORDER BY page_no ASC");
-            $nxt = $page_no + 1;
-            $stmt->bind_param("ii", $page_no, $nxt);
-            $stmt->execute();
-            $rows = $stmt->get_result();
-            $cur = null;
-            $next = null;
-            while ($r = $rows->fetch_assoc()) {
-                if ((int)$r['page_no'] === $page_no) $cur = $r;
-                elseif ((int)$r['page_no'] === $nxt) $next = $r;
-            }
-            if (!$cur) return null;
-            if ($next) {
-                return [
-                    'start' => ['surah' => (int)$cur['surah_id'], 'verse' => (int)$cur['verse']],
-                    'end'   => ['surah' => (int)$next['surah_id'], 'verse' => (int)$next['verse'] - 1],
-                ];
-            }
-            // Last page (604): ends at the end of its surah.
-            $s = $conn->prepare("SELECT total_verses FROM surahs WHERE id = ? LIMIT 1");
-            $s->bind_param("i", (int)$cur['surah_id']);
-            $s->execute();
-            $tv = $s->get_result()->fetch_assoc();
+
+        if ($page_no < 1 || $page_no > 604) return null;
+
+        $cur = null;
+        $nxt = null;
+
+        if (db_table_exists($conn, 'quran_pages')) {
+            try {
+                $stmt = $conn->prepare("SELECT page_no, surah_id, verse FROM quran_pages WHERE page_no = ? OR page_no = ? ORDER BY page_no ASC");
+                $stmt->bind_param("ii", $page_no, $page_no + 1);
+                $stmt->execute();
+                $rows = $stmt->get_result();
+                while ($r = $rows->fetch_assoc()) {
+                    if ((int)$r['page_no'] === $page_no) $cur = $r;
+                    elseif ((int)$r['page_no'] === $page_no + 1) $nxt = $r;
+                }
+            } catch (Throwable $e) { /* ignore */ }
+        }
+
+        // Static Madani index fallback (config/quran_pages_data.php) covers the
+        // whole 604 pages, so a missing/empty quran_pages table cannot break
+        // question generation.
+        if (!$cur || !$nxt) {
+            try {
+                $index = require __DIR__ . '/../quran_pages_data.php';
+                if (!$cur && isset($index[$page_no])) {
+                    $cur = ['page_no' => $page_no, 'surah_id' => (int)$index[$page_no]['surah'], 'verse' => (int)$index[$page_no]['verse']];
+                }
+                if (!$nxt && isset($index[$page_no + 1])) {
+                    $nxt = ['page_no' => $page_no + 1, 'surah_id' => (int)$index[$page_no + 1]['surah'], 'verse' => (int)$index[$page_no + 1]['verse']];
+                }
+            } catch (Throwable $e) { /* ignore */ }
+        }
+
+        if (!$cur) return null;
+
+        if (!$nxt) {
+            // Only page 604 legitimately has no following page.
+            if ($page_no !== 604) return null;
             return [
                 'start' => ['surah' => (int)$cur['surah_id'], 'verse' => (int)$cur['verse']],
-                'end'   => ['surah' => (int)$cur['surah_id'], 'verse' => (int)($tv['total_verses'] ?? 1)],
+                'end'   => ['surah' => (int)$cur['surah_id'], 'verse' => hafiz_surah_verse_count($conn, (int)$cur['surah_id'])],
             ];
-        } catch (Throwable $e) {
-            return null;
         }
+
+        return [
+            'start' => ['surah' => (int)$cur['surah_id'], 'verse' => (int)$cur['verse']],
+            'end'   => ['surah' => (int)$nxt['surah_id'], 'verse' => (int)$nxt['verse'] - 1],
+        ];
     }
 }
 
@@ -2008,12 +2070,7 @@ if (!function_exists('hafiz_generate_questions')) {
             $guard = 0;
             while ($guard < 150) {
                 $guard++;
-                $tv = 0;
-                $q = $conn->prepare("SELECT total_verses FROM surahs WHERE id = ? LIMIT 1");
-                $q->bind_param("i", $s);
-                $q->execute();
-                $rr = $q->get_result()->fetch_assoc();
-                $tv = (int)($rr['total_verses'] ?? 0);
+                $tv = hafiz_surah_verse_count($conn, $s);
                 if ($tv < 1) { $s++; $v = 1; continue; }
 
                 $seg_to = ($s === $end_s) ? $end_v : $tv;
@@ -2078,6 +2135,19 @@ if (!function_exists('hafiz_create_weekly_test')) {
         $test_id = (int)$conn->insert_id;
 
         $questions = hafiz_generate_questions($conn, $revision_id, $count);
+
+        if (count($questions) === 0) {
+            // Never leave a dead-end draft with no questions: remove it and
+            // signal failure so the caller shows a clear message instead of
+            // a test the student could never finish.
+            try {
+                $u = $conn->prepare("DELETE FROM hafiz_weekly_tests WHERE id = ?");
+                $u->bind_param("i", $test_id);
+                $u->execute();
+            } catch (Throwable $e) { /* ignore */ }
+            return null;
+        }
+
         $ins = $conn->prepare("INSERT INTO hafiz_test_answers (test_id, page_no, surah_id, from_verse, to_verse, status) VALUES (?, ?, ?, ?, ?, 'pending')");
         foreach ($questions as $q) {
             $ins->bind_param("iiiii", $test_id, $q['page_no'], $q['surah_id'], $q['from_verse'], $q['to_verse']);

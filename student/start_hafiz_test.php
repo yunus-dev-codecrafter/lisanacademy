@@ -28,18 +28,29 @@ if (!$revision) {
     exit;
 }
 
-// The weekly test unlocks once every page of the current juz is accepted by
+// The weekly test unlocks once every page of the relevant juz is accepted by
 // the teacher. Generation is only allowed when no test is in progress or under
-// review (available / failed / expired).
+// review. If one IS in progress / submitted / passed, the student should resume
+// or view it on hafiz_test.php instead of being shown a dead-end "locked" page.
 $test_state = hafiz_week_test_state($conn, $revision);
-if (!in_array($test_state['state'], ['available', 'failed', 'expired'], true)) {
-    ui_message_page('warning', 'Test Locked', $test_state['reason'], 'hafiz_revision.php', 'Hafiz Revision', 'close');
-    exit;
+switch ($test_state['state']) {
+    case 'available':
+    case 'failed':
+    case 'expired':
+        break;
+    case 'in_progress':
+    case 'pending':
+    case 'passed':
+        redirect('hafiz_test.php');
+        break;
+    default:
+        ui_message_page('warning', 'Test Locked', $test_state['reason'], 'hafiz_revision.php', 'Hafiz Revision', 'close');
+        exit;
 }
 
 $test = hafiz_create_weekly_test($conn, $student_id, $revision, 4);
 if (!$test) {
-    ui_message_page('danger', 'Could Not Start', 'We could not generate a weekly test. Please ensure you have completed revision pages to draw questions from.', 'hafiz_test.php', 'Weekly Test', 'close');
+    ui_message_page('danger', 'Could Not Start', 'We could not generate questions for this test. Make sure the teachers guide has approved your recited pages, then try again. If it still fails, tell the teacher to run the Qur\'an page-index install (admin/db_migrate11.php).', 'hafiz_test.php', 'Weekly Test', 'close');
     exit;
 }
 
