@@ -906,6 +906,38 @@ if (!function_exists('applications_pending_count')) {
     }
 }
 
+if (!function_exists('teaching_pending_count')) {
+    /**
+     * Count of pending teaching work (recitation submissions,
+     * lesson requests, live recitation requests). Used for the admin sidebar badge.
+     */
+    function teaching_pending_count($conn) {
+        try {
+            $subs = (int)$conn->query(
+                "SELECT COUNT(*) c FROM student_recitation
+                 WHERE status = 'pending'
+                   AND audio_file IS NOT NULL
+                   AND audio_file != ''
+                   AND student_deleted = 0"
+            )->fetch_assoc()['c'];
+
+            $lessons = (int)$conn->query(
+                "SELECT COUNT(*) c FROM lessons l
+                 LEFT JOIN admin_audio aa ON aa.learning_plan_id = l.id
+                 WHERE l.status = 'requested' AND aa.id IS NULL"
+            )->fetch_assoc()['c'];
+
+            $live = (int)$conn->query(
+                "SELECT COUNT(*) c FROM live_recitation_requests WHERE status = 'pending'"
+            )->fetch_assoc()['c'];
+
+            return $subs + $lessons + $live;
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+}
+
 if (!function_exists('holiday_info')) {
     /**
      * Return the holiday mode settings as an array.
