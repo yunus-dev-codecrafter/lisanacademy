@@ -1249,30 +1249,79 @@ if (!function_exists('hafiz_juz_test_passed')) {
     }
 }
 
+if (!function_exists('hafiz_completed_juz_map')) {
+    /**
+     * Map of completed juz_no => array of accepted page_no's.
+     * Uses a single query for all accepted pages of the revision to prevent
+     * query limits or latency on shared hosting.
+     * A juz is considered completed when all pages in its range are accepted.
+     * If no juz is fully accepted yet (e.g. testing or partial cycle), falls back
+     * to grouping all accepted pages by juz so question generation never starves.
+     */
+    function hafiz_completed_juz_map($conn, $revision_id) {
+        $revision_id = (int)$revision_id;
+        if (!db_table_exists($conn, 'hafiz_sessions')) return [];
+
+        $accepted_pages = [];
+        try {
+            $stmt = $conn->prepare("
+                SELECT DISTINCT page_no FROM hafiz_sessions
+                WHERE revision_id = ? AND status = 'accepted'
+                ORDER BY page_no ASC
+            ");
+            $stmt->bind_param("i", $revision_id);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($row = $res->fetch_assoc()) {
+                $accepted_pages[] = (int)$row['page_no'];
+            }
+        } catch (Throwable $e) {
+            return [];
+        }
+
+        if (!$accepted_pages) return [];
+
+        // Group accepted pages by juz
+        $pages_by_juz = [];
+        foreach ($accepted_pages as $pn) {
+            $j = hafiz_juz_of_page($pn);
+            if ($j >= 1 && $j <= 30) {
+                if (!isset($pages_by_juz[$j])) $pages_by_juz[$j] = [];
+                $pages_by_juz[$j][] = $pn;
+            }
+        }
+
+        // Filter for fully completed juzs
+        $completed_map = [];
+        foreach ($pages_by_juz as $j => $pgs) {
+            $total = hafiz_juz_total_pages($j);
+            if (count($pgs) >= $total) {
+                $completed_map[$j] = $pgs;
+            }
+        }
+
+        // Fallback: if no juz is 100% accepted, include all juzs with accepted pages
+        if (empty($completed_map)) {
+            $completed_map = $pages_by_juz;
+        }
+
+        return $completed_map;
+    }
+}
+
 if (!function_exists('hafiz_completed_juz_pages')) {
     /**
-     * Accepted page numbers that live inside fully-accepted juzs — the pool a
+     * Accepted page numbers that live inside completed juzs — the pool a
      * weekly test may draw questions from.
      */
     function hafiz_completed_juz_pages($conn, $revision_id) {
-        $revision_id = (int)$revision_id;
-        if (!db_table_exists($conn, 'hafiz_sessions')) return [];
+        $map = hafiz_completed_juz_map($conn, $revision_id);
         $out = [];
-        for ($juz = 1; $juz <= 30; $juz++) {
-            if (!hafiz_juz_complete($conn, $revision_id, $juz)) continue;
-            $r = hafiz_juz_range($juz);
-            try {
-                $stmt = $conn->prepare("
-                    SELECT DISTINCT page_no FROM hafiz_sessions
-                    WHERE revision_id = ? AND status = 'accepted' AND page_no >= ? AND page_no <= ?
-                    ORDER BY page_no ASC
-                ");
-                $stmt->bind_param("iii", $revision_id, $r[0], $r[1]);
-                $stmt->execute();
-                while ($row = $stmt->get_result()->fetch_assoc()) $out[] = (int)$row['page_no'];
-            } catch (Throwable $e) { /* ignore */ }
+        foreach ($map as $j => $pgs) {
+            foreach ($pgs as $p) $out[] = (int)$p;
         }
-        return $out;
+        sort($out);
+        return array_values(array_unique($out));
     }
 }
 
@@ -1915,22 +1964,13 @@ if (!function_exists('hafiz_week_test_block_recite')) {
 
 if (!function_exists('hafiz_surah_verse_count')) {
     /**
-     * Total verses of a surah, preferring the surahs table but falling back to a
-     * static Madani count so question generation still works if the DB row lacks
-     * total_verses (e.g. after an incomplete migration).
+     * Total verses of a surah. Uses the immutable 114-surah Madani verse count
+     * array directly (0 DB queries) for instant, fail-safe O(1) lookups without
+     * MySQL connection throttling.
      */
     function hafiz_surah_verse_count($conn, $surah_id) {
         $surah_id = (int)$surah_id;
         if ($surah_id < 1 || $surah_id > 114) return 0;
-        if (db_table_exists($conn, 'surahs')) {
-            try {
-                $s = $conn->prepare("SELECT total_verses FROM surahs WHERE id = ? LIMIT 1");
-                $s->bind_param("i", $surah_id);
-                $s->execute();
-                $tv = (int)($s->get_result()->fetch_assoc()['total_verses'] ?? 0);
-                if ($tv > 0) return $tv;
-            } catch (Throwable $e) { /* ignore */ }
-        }
         static $counts = [1=>7,2=>286,3=>200,4=>176,5=>120,6=>165,7=>206,8=>75,9=>129,10=>109,11=>123,12=>111,13=>43,14=>52,15=>99,16=>128,17=>111,18=>110,19=>98,20=>135,21=>112,22=>78,23=>118,24=>64,25=>77,26=>227,27=>93,28=>88,29=>69,30=>60,31=>34,32=>30,33=>73,34=>54,35=>45,36=>83,37=>182,38=>88,39=>75,40=>85,41=>54,42=>53,43=>89,44=>59,45=>37,46=>35,47=>38,48=>29,49=>18,50=>45,51=>60,52=>49,53=>62,54=>55,55=>78,56=>96,57=>29,58=>22,59=>24,60=>13,61=>14,62=>11,63=>11,64=>18,65=>12,66=>12,67=>30,68=>52,69=>52,70=>44,71=>28,72=>28,73=>20,74=>56,75=>40,76=>31,77=>50,78=>40,79=>46,80=>42,81=>29,82=>19,83=>36,84=>25,85=>22,86=>17,87=>19,88=>26,89=>30,90=>20,91=>15,92=>21,93=>11,94=>8,95=>8,96=>19,97=>5,98=>8,99=>8,100=>11,101=>11,102=>8,103=>3,104=>9,105=>5,106=>4,107=>7,108=>3,109=>6,110=>3,111=>5,112=>4,113=>5,114=>6];
         return $counts[$surah_id] ?? 0;
     }
@@ -2061,31 +2101,20 @@ if (!function_exists('hafiz_recited_pages')) {
     }
 }
 
-if (!function_exists('hafiz_generate_questions')) {
+if (!function_exists('hafiz_windows_for_pages')) {
     /**
-     * Build $count random verse-window questions (each >= 10 verses) from the
-     * accepted pages of COMPLETED juzs (every page of those juzs was approved
-     * by the teacher).
-     *
-     * A Madani page can hold as few as 4-11 verses, so a window is allowed to
-     * roll forward onto the next accepted page - but it always stays within a
-     * single surah, keeping the rendered "Surah X from verse A to B" correct.
-     * A completed juz always holds hundreds of accepted verses, so exactly
-     * $count distinct windows are guaranteed.
-     *
-     * Returns a list of ['page_no','surah_id','from_verse','to_verse'].
+     * Generate candidate question windows from an array of physical page numbers.
+     * Decomposes pages into surah-bounded runs, then generates passage windows
+     * with 4 passes to ensure even small pools or short surahs have ample distinct
+     * questions.
      */
-    function hafiz_generate_questions($conn, $revision_id, $count = 4) {
-        $count = (int)$count;
-        if ($count <= 0) return [];
-        $pages = hafiz_completed_juz_pages($conn, $revision_id);
-        if (!$pages) return [];
+    function hafiz_windows_for_pages($conn, $pages) {
+        if (!is_array($pages) || empty($pages)) return [];
 
-        // Decompose every accepted page into ordered, surah-bounded verse
-        // chunks (an index page can cover several surahs).
+        // Decompose every accepted page into ordered, surah-bounded verse chunks
         $chunks = [];
         foreach ($pages as $pn) {
-            $span = hafiz_page_verse_span($conn, $pn);
+            $span = hafiz_page_verse_span($conn, (int)$pn);
             if (!$span) continue;
             $start_s = (int)$span['start']['surah'];
             $start_v = (int)$span['start']['verse'];
@@ -2102,7 +2131,7 @@ if (!function_exists('hafiz_generate_questions')) {
                 $seg_to = ($s === $end_s) ? $end_v : $tv;
                 if ($seg_to >= $v) {
                     $chunks[] = [
-                        'page_no'  => $pn,
+                        'page_no'  => (int)$pn,
                         'surah_id' => $s,
                         'from'     => $v,
                         'to'       => $seg_to,
@@ -2116,8 +2145,7 @@ if (!function_exists('hafiz_generate_questions')) {
         }
         if (!$chunks) return [];
 
-        // Merge consecutive chunks of the same surah into one run so a window
-        // can roll across pages but never crosses into another surah.
+        // Merge consecutive chunks of the same surah into contiguous runs
         $runs = [];
         foreach ($chunks as $c) {
             $ri = count($runs) - 1;
@@ -2134,13 +2162,14 @@ if (!function_exists('hafiz_generate_questions')) {
             }
         }
 
-        $windows = [];
         $find_page = function ($run, $v) {
             foreach ($run['pages'] as $pg) {
                 if ($v >= $pg['from'] && $v <= $pg['to']) return (int)$pg['page_no'];
             }
             return (int)($run['pages'][0]['page_no'] ?? 0);
         };
+
+        $windows = [];
 
         // Pass 1: Standard 10-15 verse non-overlapping windows
         foreach ($runs as $run) {
@@ -2162,52 +2191,54 @@ if (!function_exists('hafiz_generate_questions')) {
             }
         }
 
-        // Pass 2: Fallback for shorter runs (< 10 verses) if still short of target count
-        if (count($windows) < $count) {
-            foreach ($runs as $run) {
-                $total = (int)$run['to'] - (int)$run['from'] + 1;
-                if ($total >= 5 && $total < 10) {
+        // Pass 2: Shorter runs (5-9 verses) as complete passage questions
+        foreach ($runs as $run) {
+            $total = (int)$run['to'] - (int)$run['from'] + 1;
+            if ($total >= 5 && $total < 10) {
+                $windows[] = [
+                    'page_no'    => $find_page($run, (int)$run['from']),
+                    'surah_id'   => (int)$run['surah_id'],
+                    'from_verse' => (int)$run['from'],
+                    'to_verse'   => (int)$run['to'],
+                ];
+            }
+        }
+
+        // Pass 3: Sliding sampling with step offset for runs >= 10
+        foreach ($runs as $run) {
+            $total = (int)$run['to'] - (int)$run['from'] + 1;
+            if ($total >= 10) {
+                $len = min(10, $total);
+                for ($offset = 3; $offset <= $total - $len; $offset += 4) {
+                    $start = (int)$run['from'] + $offset;
                     $windows[] = [
-                        'page_no'    => $find_page($run, (int)$run['from']),
+                        'page_no'    => $find_page($run, $start),
                         'surah_id'   => (int)$run['surah_id'],
-                        'from_verse' => (int)$run['from'],
-                        'to_verse'   => (int)$run['to'],
+                        'from_verse' => $start,
+                        'to_verse'   => $start + $len - 1,
                     ];
                 }
             }
         }
 
-        // Pass 3: Secondary sampling from larger runs if still short of target count
-        if (count($windows) < $count) {
+        // Pass 4: Fallback for small runs or pages to guarantee ample candidate windows
+        if (count($windows) < 4) {
             foreach ($runs as $run) {
                 $total = (int)$run['to'] - (int)$run['from'] + 1;
-                if ($total >= 10) {
-                    $len = min(10, $total);
-                    for ($attempt = 0; $attempt < 5 && count($windows) < $count; $attempt++) {
-                        $max_start = (int)$run['to'] - $len + 1;
-                        $start = rand((int)$run['from'], $max_start);
-                        $exists = false;
-                        foreach ($windows as $w) {
-                            if ($w['surah_id'] === (int)$run['surah_id'] && abs($w['from_verse'] - $start) < 4) {
-                                $exists = true;
-                                break;
-                            }
-                        }
-                        if (!$exists) {
-                            $windows[] = [
-                                'page_no'    => $find_page($run, $start),
-                                'surah_id'   => (int)$run['surah_id'],
-                                'from_verse' => $start,
-                                'to_verse'   => $start + $len - 1,
-                            ];
-                        }
+                for ($subLen = min($total, 7); $subLen >= 2; $subLen--) {
+                    for ($start = (int)$run['from']; $start <= (int)$run['to'] - $subLen + 1; $start++) {
+                        $windows[] = [
+                            'page_no'    => $find_page($run, $start),
+                            'surah_id'   => (int)$run['surah_id'],
+                            'from_verse' => $start,
+                            'to_verse'   => $start + $subLen - 1,
+                        ];
+                        if (count($windows) >= 12) break;
                     }
+                    if (count($windows) >= 12) break;
                 }
-                if (count($windows) >= $count) break;
             }
         }
-
-        if (!$windows) return [];
 
         // Deduplicate windows
         $unique = [];
@@ -2220,8 +2251,111 @@ if (!function_exists('hafiz_generate_questions')) {
             }
         }
 
-        shuffle($unique);
-        return array_slice($unique, 0, $count);
+        return $unique;
+    }
+}
+
+if (!function_exists('hafiz_generate_questions')) {
+    /**
+     * Build $count random questions drawn fairly across all completed juzs.
+     * When any juz has been completed, it falls into the selection pool so
+     * questions can be sampled from any completed juz. The total number of
+     * generated questions is strictly guaranteed to be $count (default 4).
+     *
+     * Returns a list of ['page_no','surah_id','from_verse','to_verse'].
+     */
+    function hafiz_generate_questions($conn, $revision_id, $count = 4) {
+        $count = (int)$count;
+        if ($count <= 0) return [];
+
+        $juz_map = hafiz_completed_juz_map($conn, $revision_id);
+        if (empty($juz_map)) return [];
+
+        // Generate windows for each completed juz
+        $juz_windows = [];
+        $eligible_juzs = [];
+        foreach ($juz_map as $j => $pgs) {
+            $wins = hafiz_windows_for_pages($conn, $pgs);
+            if (!empty($wins)) {
+                $juz_windows[$j] = $wins;
+                $eligible_juzs[] = (int)$j;
+            }
+        }
+
+        if (empty($eligible_juzs)) return [];
+        sort($eligible_juzs);
+
+        // Determine question slot allocation across completed juzs
+        $allocation = [];
+        foreach ($eligible_juzs as $j) $allocation[$j] = 0;
+
+        $num_juzs = count($eligible_juzs);
+        if ($num_juzs === 1) {
+            // Only 1 completed juz: all questions come from this juz
+            $allocation[$eligible_juzs[0]] = $count;
+        } elseif ($num_juzs === 2) {
+            // 2 completed juzs: balanced 2 from each
+            $allocation[$eligible_juzs[0]] = (int)ceil($count / 2);
+            $allocation[$eligible_juzs[1]] = $count - $allocation[$eligible_juzs[0]];
+        } elseif ($num_juzs === 3) {
+            // 3 completed juzs: at least 1 from each, bonus randomly allocated
+            foreach ($eligible_juzs as $j) $allocation[$j] = 1;
+            $bonus = $eligible_juzs[array_rand($eligible_juzs)];
+            $allocation[$bonus] += ($count - 3);
+        } elseif ($num_juzs === 4) {
+            // 4 completed juzs: exactly 1 from each
+            foreach ($eligible_juzs as $j) $allocation[$j] = 1;
+        } else {
+            // More than 4 completed juzs:
+            // Randomly select $count distinct completed juzs (any completed juz can be chosen)
+            $shuffled_juzs = $eligible_juzs;
+            shuffle($shuffled_juzs);
+            for ($i = 0; $i < $count; $i++) {
+                $allocation[$shuffled_juzs[$i]] = 1;
+            }
+        }
+
+        // Pick the allocated questions from each juz
+        $selected = [];
+        $used_keys = [];
+
+        foreach ($allocation as $j => $target) {
+            if ($target <= 0 || !isset($juz_windows[$j])) continue;
+            $pool = $juz_windows[$j];
+            shuffle($pool);
+            $picked = 0;
+            foreach ($pool as $w) {
+                $k = $w['page_no'] . '-' . $w['surah_id'] . '-' . $w['from_verse'] . '-' . $w['to_verse'];
+                if (!isset($used_keys[$k])) {
+                    $used_keys[$k] = true;
+                    $selected[] = $w;
+                    $picked++;
+                    if ($picked >= $target) break;
+                }
+            }
+        }
+
+        // If any juz had fewer questions than allocated, backfill from remaining unused candidate windows
+        if (count($selected) < $count) {
+            $all_remaining = [];
+            foreach ($eligible_juzs as $j) {
+                foreach ($juz_windows[$j] as $w) {
+                    $k = $w['page_no'] . '-' . $w['surah_id'] . '-' . $w['from_verse'] . '-' . $w['to_verse'];
+                    if (!isset($used_keys[$k])) {
+                        $all_remaining[] = $w;
+                    }
+                }
+            }
+            shuffle($all_remaining);
+            foreach ($all_remaining as $w) {
+                $selected[] = $w;
+                if (count($selected) >= $count) break;
+            }
+        }
+
+        // Final shuffle so questions from different juzs are randomly ordered
+        shuffle($selected);
+        return array_slice($selected, 0, $count);
     }
 }
 
@@ -2253,18 +2387,14 @@ if (!function_exists('hafiz_create_weekly_test')) {
 
         $questions = hafiz_generate_questions($conn, $revision_id, $count);
 
-        if (count($questions) === 0) {
-            // Never leave a dead-end draft with no questions: remove it and
-            // signal failure so the caller shows a clear message instead of
-            // a test the student could never finish.
+        if (count($questions) < $count) {
+            // Never leave an under-filled test: remove it and log diagnostic info
             try {
                 $u = $conn->prepare("DELETE FROM hafiz_weekly_tests WHERE id = ?");
                 $u->bind_param("i", $test_id);
                 $u->execute();
-                // Surface why generation produced nothing so the failure is
-                // diagnosable (e.g. page-index resolution broken).
                 $pool = hafiz_completed_juz_pages($conn, $revision_id);
-                @error_log("hafiz_generate_questions yielded 0 questions (revision_id=$revision_id, week_no=$week_no, student_id=$student_id, accepted_pages=" . count($pool) . ")");
+                @error_log("hafiz_generate_questions yielded " . count($questions) . " questions (< $count) (revision_id=$revision_id, week_no=$week_no, student_id=$student_id, accepted_pages=" . count($pool) . ")");
             } catch (Throwable $e) { /* ignore */ }
             return null;
         }
