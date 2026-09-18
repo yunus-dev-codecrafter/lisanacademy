@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/security/helpers.php';
 require_once __DIR__ . '/../auth/auth_check.php';
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../config/audio_fix.php';
 
 require_role('admin');
 
@@ -49,14 +50,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Optional admin audio feedback (observations / corrections)
         $admin_audio = null;
         if (isset($_FILES['admin_audio']) && $_FILES['admin_audio']['error'] === UPLOAD_ERR_OK) {
-            $allowed = ['webm', 'mp3', 'm4a', 'ogg', 'wav', 'mp4', 'aac'];
-            $ext = strtolower(pathinfo($_FILES['admin_audio']['name'], PATHINFO_EXTENSION));
-            if (!in_array($ext, $allowed, true)) $ext = 'mp3';
-            $filename = 'test_feedback_' . $test_id . '_' . time() . '.' . $ext;
             $upload_dir = dirname(__DIR__) . '/uploads/admin_feedback/';
             if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
-            if (move_uploaded_file($_FILES['admin_audio']['tmp_name'], $upload_dir . $filename)) {
-                $admin_audio = $filename;
+            $res = audio_save_upload($_FILES['admin_audio']['tmp_name'], $upload_dir, 'test_feedback_' . $test_id . '_', $_FILES['admin_audio']['name']);
+            if ($res['ok']) {
+                $admin_audio = $res['file'];
             }
         }
 

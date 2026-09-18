@@ -2,6 +2,7 @@
 require '../config/security/helpers.php';
 require '../auth/auth_check.php';
 require '../config/db.php';
+require '../config/audio_fix.php';
 require_role('student');
 
 if (student_is_hafiz($conn, (int)($_SESSION['user_id'] ?? 0))) {
@@ -47,18 +48,14 @@ if (!is_dir($upload_dir)) {
     mkdir($upload_dir, 0777, true);
 }
 
-/* Save file — only ever accept real audio extensions; anything else is a
-   failed attempt to sneak a script onto the server, so fall back to .webm. */
-$ext = strtolower(pathinfo($_FILES['audio']['name'], PATHINFO_EXTENSION));
-if (!in_array($ext, ['webm', 'mp3', 'm4a', 'ogg', 'wav', 'mp4', 'aac'], true)) {
-    $ext = 'webm';
+/* Save file — normalize it so it is guaranteed to play back (see
+   config/audio_fix.php). Videos and oversized files are rejected here. */
+$res = audio_save_upload($_FILES['audio']['tmp_name'], $upload_dir, 'student_', $_FILES['audio']['name']);
+if (!$res['ok']) {
+    if ($is_ajax) { echo $res['error']; exit; }
+    exit('Upload failed: ' . $res['error']);
 }
-$filename = 'student_' . time() . '_' . rand(1000,9999) . '.' . $ext;
-$target = $upload_dir . $filename;
-
-if (!move_uploaded_file($_FILES['audio']['tmp_name'], $target)) {
-    exit('Upload failed');
-}
+$filename = $res['file'];
 
 /* Insert recitation */
 $stmt = $conn->prepare("

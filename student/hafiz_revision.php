@@ -572,13 +572,25 @@ document.addEventListener('keydown', function(e) {
 });
 
 /* Audio Recording */
+const REC_MIME = (window.MediaRecorder && (
+    MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' :
+    MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
+)) || '';
+const REC_EXT = REC_MIME === 'audio/mp4' ? 'm4a' : 'webm';
+const REC_OPTS = REC_MIME
+    ? { mimeType: REC_MIME, audioBitsPerSecond: 48000, videoBitsPerSecond: 0 }
+    : { audioBitsPerSecond: 48000, videoBitsPerSecond: 0 };
+const REC_MAX_MS = 5 * 60 * 1000;
+let recMaxTimer = null;
+
 function startRecording() {
     navigator.mediaDevices.getUserMedia({audio: true}).then(function(stream) {
         audioBlobs = [];
-        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder = new MediaRecorder(stream, REC_OPTS);
         mediaRecorder.ondataavailable = function(e) { if (e.data.size > 0) audioBlobs.push(e.data); };
         mediaRecorder.onstop = function() {
-            var blob = new Blob(audioBlobs, {type: 'audio/webm'});
+            clearTimeout(recMaxTimer);
+            var blob = new Blob(audioBlobs, {type: REC_MIME || 'audio/webm'});
             recordedBlob = blob;
             var audio = document.getElementById('recAudio');
             audio.src = URL.createObjectURL(blob);
@@ -586,7 +598,13 @@ function startRecording() {
             document.getElementById('sendAudioBtn').style.display = 'inline-flex';
             stream.getTracks().forEach(function(t) { t.stop(); });
         };
-        mediaRecorder.start();
+        mediaRecorder.start(1000);
+        recMaxTimer = setTimeout(function() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                alert('Recording stopped automatically after 5 minutes.');
+            }
+        }, REC_MAX_MS);
         document.getElementById('startRecBtn').disabled = true;
         document.getElementById('stopRecBtn').disabled = false;
     }).catch(function() {
@@ -608,7 +626,7 @@ function sendAudio() {
     fd.append('action', 'audio');
     fd.append('page_no', <?= $required_page ?>);
     fd.append('revision_id', <?= (int)($revision['id'] ?? 0) ?>);
-    fd.append('audio', recordedBlob, 'page_<?= $required_page ?>.webm');
+    fd.append('audio', recordedBlob, 'page_<?= $required_page ?>.' + REC_EXT);
     var csrfInput = document.querySelector('[name=csrf_token]');
     if (csrfInput) fd.append('csrf_token', csrfInput.value);
 

@@ -3,22 +3,19 @@ require '../config/security/helpers.php';
 require_role('admin');
 require '../auth/auth_check.php';
 require '../config/db.php';
+require '../config/audio_fix.php';
 
 $rec_id   = (int)$_POST['rec_id'];
 $status   = $_POST['status']; // accepted or rejected
 $rating   = $_POST['rating'] ?? null;
 $feedback = $_POST['feedback'] ?? null;
 
-// Optional: handle uploaded admin audio feedback
+// Optional: handle uploaded admin audio feedback (normalized for playback)
 $adminAudioFile = null;
 if (isset($_FILES['admin_audio']) && $_FILES['admin_audio']['error'] === UPLOAD_ERR_OK) {
-    $tmpName = $_FILES['admin_audio']['tmp_name'];
-    $ext = pathinfo($_FILES['admin_audio']['name'], PATHINFO_EXTENSION);
-    $newFileName = 'feedback_' . $rec_id . '_' . time() . '.' . $ext;
-    $uploadPath = __DIR__ . '/../uploads/admin_feedback/' . $newFileName;
-
-    if (move_uploaded_file($tmpName, $uploadPath)) {
-        $adminAudioFile = $newFileName;
+    $res = audio_save_upload($_FILES['admin_audio']['tmp_name'], __DIR__ . '/../uploads/admin_feedback/', 'feedback_' . $rec_id . '_', $_FILES['admin_audio']['name']);
+    if ($res['ok']) {
+        $adminAudioFile = $res['file'];
     }
 }
 

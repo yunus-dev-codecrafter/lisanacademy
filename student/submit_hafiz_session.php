@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/security/helpers.php';
 require_once __DIR__ . '/../auth/auth_check.php';
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../config/audio_fix.php';
 
 require_role('student');
 $student_id = (int)$_SESSION['user_id'];
@@ -87,20 +88,17 @@ if ($action === 'audio') {
         exit;
     }
 
-    $allowed = ['webm', 'mp3', 'm4a', 'ogg', 'wav', 'mp4', 'aac'];
-    $ext = strtolower(pathinfo($_FILES['audio']['name'], PATHINFO_EXTENSION));
-    if (!in_array($ext, $allowed, true)) $ext = 'webm';
-
-    $filename = 'hafiz_' . $student_id . '_' . time() . '_' . rand(1000, 9999) . '.' . $ext;
     $upload_dir = dirname(__DIR__) . '/uploads/student_audio/';
     if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
 
-    if (move_uploaded_file($_FILES['audio']['tmp_name'], $upload_dir . $filename)) {
-        $res = hafiz_record_submission($conn, $student_id, $revision_id, $page_no, 'audio', $filename);
-        echo $res['ok'] ? 'OK' : $res['reason'];
+    $res = audio_save_upload($_FILES['audio']['tmp_name'], $upload_dir, 'hafiz_' . $student_id . '_', $_FILES['audio']['name']);
+    if ($res['ok']) {
+        $rec = hafiz_record_submission($conn, $student_id, $revision_id, $page_no, 'audio', $res['file']);
+        echo $rec['ok'] ? 'OK' : $rec['reason'];
         exit;
     } else {
-        echo 'Failed to save audio file.';
+        if (is_file($_FILES['audio']['tmp_name'])) @unlink($_FILES['audio']['tmp_name']);
+        echo $res['error'];
         exit;
     }
 }

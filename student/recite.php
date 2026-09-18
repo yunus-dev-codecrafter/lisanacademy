@@ -94,27 +94,39 @@ const preview = document.getElementById('preview');
 let recorder = null;
 let chunks = [];
 let audioBlob = null;
+let recMaxTimer = null;
 
 const MIME = (window.MediaRecorder && (
     MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' :
     MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
 )) || '';
 const REC_EXT = MIME === 'audio/mp4' ? 'm4a' : 'webm';
+const REC_OPTS = MIME
+    ? { mimeType: MIME, audioBitsPerSecond: 48000, videoBitsPerSecond: 0 }
+    : { audioBitsPerSecond: 48000, videoBitsPerSecond: 0 };
+const REC_MAX_MS = 5 * 60 * 1000;
 
 startBtn.addEventListener('click', () => {
     chunks = [];
     audioBlob = null;
     navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-        recorder = new MediaRecorder(stream, MIME ? { mimeType: MIME } : undefined);
+        recorder = new MediaRecorder(stream, REC_OPTS);
         recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
         recorder.onstop = () => {
+            clearTimeout(recMaxTimer);
             audioBlob = new Blob(chunks, { type: MIME || 'audio/webm' });
             preview.src = URL.createObjectURL(audioBlob);
             preview.classList.remove('hidden');
             sendBtn.disabled = false;
             stream.getTracks().forEach(t => t.stop());
         };
-        recorder.start();
+        recorder.start(1000);
+        recMaxTimer = setTimeout(() => {
+            if (recorder && recorder.state === 'recording') {
+                recorder.stop();
+                alert('Recording stopped automatically after 5 minutes.');
+            }
+        }, REC_MAX_MS);
         startBtn.disabled = true;
         stopBtn.disabled = false;
     }).catch(() => alert('Microphone access denied'));
@@ -137,6 +149,7 @@ sendBtn.addEventListener('click', () => {
         .catch(err => alert('Error submitting recitation: ' + err));
 });
 </script>
+<script src="/assets/js/audio_player.js"></script>
 
 </body>
 </html>

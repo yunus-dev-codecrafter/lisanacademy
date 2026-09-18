@@ -237,6 +237,7 @@ if (!function_exists('ui_page_end')) {
         echo ui_footer() . "\n";
         echo '</div>' . "\n";
         echo '<script src="/assets/js/sidebar.js"></script>' . "\n";
+        echo '<script src="/assets/js/audio_player.js"></script>' . "\n";
     }
 }
 

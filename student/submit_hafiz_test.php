@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/security/helpers.php';
 require_once __DIR__ . '/../auth/auth_check.php';
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../config/audio_fix.php';
 
 require_role('student');
 $student_id = (int)$_SESSION['user_id'];
@@ -77,7 +78,6 @@ if (!$pending) {
 $upload_dir = dirname(__DIR__) . '/uploads/hafiz_test_audio/';
 if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
 
-$allowed = ['webm', 'mp3', 'm4a', 'ogg', 'wav', 'mp4', 'aac'];
 $saved = [];
 
 foreach ($pending as $i => $q) {
@@ -92,16 +92,14 @@ foreach ($pending as $i => $q) {
         exit;
     }
 
-    $ext = strtolower(pathinfo($audios['name'][$i], PATHINFO_EXTENSION));
-    if (!in_array($ext, $allowed, true)) $ext = 'webm';
-
-    $filename = 'htest_' . $test_id . '_' . $aid . '_' . time() . '_' . rand(1000, 9999) . '.' . $ext;
-    if (!move_uploaded_file($audios['tmp_name'][$i], $upload_dir . $filename)) {
+    $res = audio_save_upload($audios['tmp_name'][$i], $upload_dir, 'htest_' . $test_id . '_' . $aid . '_', $audios['name'][$i]);
+    if (!$res['ok']) {
         // Rollback any files already saved for this batch
         foreach ($saved as $old) { @unlink($upload_dir . $old); }
-        echo 'Failed to save audio file for Question ' . ($i + 1) . '.';
+        echo $res['error'];
         exit;
     }
+    $filename = $res['file'];
     $saved[] = $filename;
     $by_id[$aid]['_file'] = $filename;
 }

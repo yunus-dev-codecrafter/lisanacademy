@@ -3,6 +3,9 @@ AddType audio/ogg .ogg
 AddType audio/mpeg .mp3
 AddType audio/mp4 .m4a
 AddType audio/aac .aac
+AddType video/quicktime .mov
+AddType audio/mp4 .mp4
+AddType audio/ogg .opus
 
 # Never let a script run out of an upload folder.
 <FilesMatch "(?i)\.(php|phtml|php3|php4|php5|php7|phar|pl|py|cgi|asp|aspx|jsp|sh|shtml|pht|inc)$">

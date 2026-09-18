@@ -337,6 +337,7 @@ const qcount = <?= $draft ? count($today_pending_items ?? []) : 0 ?>;
 const recorders = {};
 const chunks = {};
 const blobs = {};
+const recMaxTimers = {};
 
 /* Pick a container the browser can actually record into (Safari/iOS only does audio/mp4) */
 const MIME = (window.MediaRecorder && (
@@ -344,6 +345,10 @@ const MIME = (window.MediaRecorder && (
     MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
 )) || '';
 const REC_EXT = MIME === 'audio/mp4' ? 'm4a' : 'webm';
+const REC_OPTS = MIME
+    ? { mimeType: MIME, audioBitsPerSecond: 48000, videoBitsPerSecond: 0 }
+    : { audioBitsPerSecond: 48000, videoBitsPerSecond: 0 };
+const REC_MAX_MS = 5 * 60 * 1000;
 
 /* Toggle between in-browser recorder and file upload, per question */
 for (let i = 0; i < qcount; i++) {
@@ -370,9 +375,10 @@ function startRec(i) {
     chunks[i] = [];
     navigator.mediaDevices.getUserMedia({ audio: true })
         .then(s => {
-            const rec = new MediaRecorder(s, MIME ? { mimeType: MIME } : undefined);
+            const rec = new MediaRecorder(s, REC_OPTS);
             rec.ondataavailable = e => { if (e.data.size) chunks[i].push(e.data); };
             rec.onstop = () => {
+                clearTimeout(recMaxTimers[i]);
                 blobs[i] = new Blob(chunks[i], { type: MIME || 'audio/webm' });
                 const p = document.getElementById('preview_' + i);
                 p.src = URL.createObjectURL(blobs[i]);
@@ -381,7 +387,13 @@ function startRec(i) {
                 s.getTracks().forEach(t => t.stop());
             };
             recorders[i] = rec;
-            rec.start();
+            rec.start(1000);
+            recMaxTimers[i] = setTimeout(() => {
+                if (recorders[i] && recorders[i].state === 'recording') {
+                    recorders[i].stop();
+                    alert('Recording stopped automatically after 5 minutes.');
+                }
+            }, REC_MAX_MS);
             document.getElementById('start_' + i).disabled = true;
             document.getElementById('stop_' + i).disabled = false;
         })

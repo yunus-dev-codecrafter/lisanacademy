@@ -488,19 +488,31 @@ const MIME = (window.MediaRecorder && (
     MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
 )) || '';
 const REC_EXT = MIME === 'audio/mp4' ? 'm4a' : 'webm';
+const REC_OPTS = MIME
+    ? { mimeType: MIME, audioBitsPerSecond: 48000, videoBitsPerSecond: 0 }
+    : { audioBitsPerSecond: 48000, videoBitsPerSecond: 0 };
+const REC_MAX_MS = 5 * 60 * 1000;
+let recMaxTimer = null;
 
 function startRecording(id){
 navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
 recordedBlobs[id]=[];
 recordedStreams[id]=stream;
-mediaRecorder=new MediaRecorder(stream, MIME ? {mimeType:MIME} : undefined);
+mediaRecorder=new MediaRecorder(stream, REC_OPTS);
 mediaRecorder.ondataavailable=e=>e.data.size&&recordedBlobs[id].push(e.data);
-mediaRecorder.start();
+mediaRecorder.start(1000);
+recMaxTimer=setTimeout(()=>{
+if(mediaRecorder && mediaRecorder.state==='recording'){
+mediaRecorder.stop();
+alert('Recording stopped automatically after 5 minutes.');
+}
+}, REC_MAX_MS);
 }).catch(()=>alert('Mic access denied. You can upload an audio file instead.'));
 }
 
 function stopRecording(id){
 mediaRecorder.onstop=()=>{
+clearTimeout(recMaxTimer);
 const blob=new Blob(recordedBlobs[id],{type: MIME || 'audio/webm'});
 document.getElementById('audio_'+id).src=URL.createObjectURL(blob);
 document.getElementById('send_'+id).style.display='inline-flex';

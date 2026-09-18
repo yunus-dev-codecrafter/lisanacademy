@@ -1,6 +1,8 @@
 <?php
 require '../config/security/helpers.php';
 require '../auth/auth_check.php';
+require '../config/db.php';
+require '../config/audio_fix.php';
 require_role('student');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -125,18 +127,14 @@ if (!is_dir($upload_dir)) {
 
 $saved_files = [];
 foreach ($payload as $i => $q) {
-    $ext = strtolower(pathinfo($q['name'], PATHINFO_EXTENSION));
-    if (!in_array($ext, ['webm', 'mp3', 'm4a', 'ogg', 'wav', 'mp4', 'aac'], true)) {
-        $ext = 'webm';
-    }
-    $filename = 'exam_' . $attempt_id . '_' . $q['aid'] . '_' . time() . '.' . $ext;
-
-    if (!move_uploaded_file($q['tmp'], $upload_dir . $filename)) {
+    $res = audio_save_upload($q['tmp'], $upload_dir, 'exam_' . $attempt_id . '_' . $q['aid'] . '_', $q['name']);
+    if (!$res['ok']) {
         foreach ($saved_files as $f) {
             if (is_file($f)) @unlink($f);
         }
-        exit('Could not save your answers. Please try again.');
+        exit($res['error']);
     }
+    $filename = $res['file'];
     $saved_files[] = $upload_dir . $filename;
     $payload[$i]['filename'] = $filename;
 }

@@ -3,6 +3,7 @@ require '../config/security/helpers.php';
 require_role('admin');
 include '../auth/auth_check.php';
 include '../config/db.php';
+require '../config/audio_fix.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit('Invalid request.');
@@ -22,23 +23,18 @@ if (!isset($_FILES['audio']) || $_FILES['audio']['error'] !== 0) {
 }
 
 // Create upload directory if it doesn't exist
-$uploadDir = '../uploads/admin_audio/';
+$uploadDir = __DIR__ . '/../uploads/admin_audio/';
 if (!is_dir($uploadDir)) {
     mkdir($uploadDir, 0777, true);
 }
 
-// Save uploaded file — only real audio extensions are allowed; anything else
-// falls back to .webm so a script can never be stored as an executable file.
-$ext = strtolower(pathinfo($_FILES['audio']['name'], PATHINFO_EXTENSION));
-if (!in_array($ext, ['webm', 'mp3', 'm4a', 'ogg', 'wav', 'mp4', 'aac'], true)) {
-    $ext = 'webm';
+// Save uploaded file — normalize it so it is guaranteed to play back (see
+// config/audio_fix.php). Videos and oversized files are rejected here.
+$res = audio_save_upload($_FILES['audio']['tmp_name'], $uploadDir, 'admin_', $_FILES['audio']['name']);
+if (!$res['ok']) {
+    ui_message_page('danger', 'Upload Failed', $res['error'], 'teaching.php', 'Back to Teaching Dashboard', 'close');
 }
-$filename = 'admin_' . time() . '_' . rand(1000,9999) . '.' . $ext;
-$target = $uploadDir . $filename;
-
-if (!move_uploaded_file($_FILES['audio']['tmp_name'], $target)) {
-    ui_message_page('danger', 'Upload Failed', 'Failed to upload the audio file. Please try again.', 'teaching.php', 'Back to Teaching Dashboard', 'close');
-}
+$filename = $res['file'];
 
 // Insert admin audio record
 $stmt = $conn->prepare("

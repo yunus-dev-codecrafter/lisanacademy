@@ -119,6 +119,11 @@ const MIME = (window.MediaRecorder && (
     MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
 )) || '';
 const REC_EXT = MIME === 'audio/mp4' ? 'm4a' : 'webm';
+const REC_OPTS = MIME
+    ? { mimeType: MIME, audioBitsPerSecond: 48000, videoBitsPerSecond: 0 }
+    : { audioBitsPerSecond: 48000, videoBitsPerSecond: 0 };
+const REC_MAX_MS = 5 * 60 * 1000;
+const recMaxTimers = {};
 
 function markCompleted(audioId,lessonId){
     const fd=new FormData(); const csrfInput=document.querySelector('[name=csrf_token]');
@@ -139,15 +144,23 @@ function startRecording(id){
     navigator.mediaDevices.getUserMedia({audio:true})
     .then(s=>{
         streams[id]=s;
-        recorders[id]=new MediaRecorder(s, MIME ? {mimeType:MIME} : undefined);
+        recorders[id]=new MediaRecorder(s, REC_OPTS);
         recorders[id].ondataavailable=e=>chunks[id].push(e.data);
-        recorders[id].start(); alert('Recording started');
+        recorders[id].start(1000);
+        recMaxTimers[id]=setTimeout(()=>{
+            if(recorders[id] && recorders[id].state==='recording'){
+                recorders[id].stop();
+                alert('Recording stopped automatically after 5 minutes.');
+            }
+        }, REC_MAX_MS);
+        alert('Recording started');
     }).catch(()=>alert('Mic access denied. You can upload an audio file instead.'));
 }
 
 function stopRecording(id){
     if(!recorders[id])return alert('Not recording');
     recorders[id].onstop=()=>{
+        clearTimeout(recMaxTimers[id]);
         const b=new Blob(chunks[id],{type: MIME || 'audio/webm'});
         blobs[id]=b;
         const a=document.getElementById('preview_'+id);
