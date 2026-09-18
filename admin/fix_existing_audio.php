@@ -108,8 +108,8 @@ foreach ($dirs as $key => $dirPath) {
         <?php if ($problem): ?><span style="color:var(--danger);"><?= $problem ?> unreadable.</span><?php endif; ?></p>
 </div>
 
-<?php foreach ($reports as $key => $items): ?>
-<div class="card animate-rise d<?= min(5, 2 + $key) ?>" style="margin-top:12px;">
+<?php $cardIdx = 1; foreach ($reports as $key => $items): $cardIdx++; ?>
+<div class="card animate-rise d<?= min(5, $cardIdx) ?>" style="margin-top:12px;">
     <div class="card-title">
         <h3 style="margin:0;"><?= ui_icon('folder', 17) ?> uploads/<?= htmlspecialchars($key) ?>/ <span class="badge badge-grey"><?= count($items) ?> files</span></h3>
     </div>
