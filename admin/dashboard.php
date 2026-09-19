@@ -105,6 +105,19 @@ $pending_recitations = $pending_recitations_submissions + $pending_lesson_reques
     </div>
 <?php endif; ?>
 
+<?php
+/* Digital Islamiyya — publish-readiness for the admin's dashboard card.
+ * A book only ever ships live when both hold: its record is status=live
+ * AND every lesson + question pack is uploaded. Everything else stays
+ * sealed ("Coming Soon") until the admin finishes the full pack. */
+$islamiyya_live_count = 0;
+$islamiyya_total      = 0;
+foreach ((islamiyya_books($conn) ?? []) as $b) {
+    $islamiyya_total++;
+    $r = islamiyya_book_readiness($conn, $b);
+    if ((int)($b['status'] ?? 0) === 1 && !empty($r['ready'])) $islamiyya_live_count++;
+}
+?>
 <div class="stat-grid animate-rise d1">
     <div class="stat-card stat-green">
         <span class="stat-ico"><?= ui_icon('users') ?></span>

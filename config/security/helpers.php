@@ -1030,6 +1030,9 @@ if (!function_exists('holiday_allowed_student_page')) {
             'profile.php',
             'update_profile.php',
             'logout.php',
+            'islamiyya.php',
+            'islamiyya_learn.php',
+            'islamiyya_quiz.php',
         ];
         return in_array($page, $allowed, true);
     }
@@ -2822,5 +2825,330 @@ if (!function_exists('maybe_auto_request_next_lesson')) {
         $stmt->execute();
 
         return 'requested';
+    }
+}
+
+/* ==================================================================
+   DIGITAL ISLAMIYYA — book-based learning program
+   Books are seeded into islamiyya_books (Coming Soon) and become live
+   only once the admin completes every lesson (and each lesson has at
+   least one auto-graded MCQ question).
+   ================================================================== */
+
+if (!function_exists('islamiyya_subscribed')) {
+    /**
+     * True when the student is subscribed to (has paid the fee for) the
+     * Digital Islamiyya program. Safe to call if the column is missing.
+     */
+    function islamiyya_subscribed($conn, $student_id) {
+        $student_id = (int)$student_id;
+        if ($student_id <= 0) return false;
+        if (!db_column_exists($conn, 'users', 'islamiyya_subscribed')) return false;
+        try {
+            $stmt = $conn->prepare("SELECT islamiyya_subscribed FROM users WHERE id = ? LIMIT 1");
+            $stmt->bind_param("i", $student_id);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            return $r ? (int)$r['islamiyya_subscribed'] === 1 : false;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('islamiyya_books')) {
+    /** All catalog books ordered for display (sort_order, id). */
+    function islamiyya_books($conn) {
+        try {
+            $res = $conn->query("SELECT * FROM islamiyya_books ORDER BY sort_order ASC, id ASC");
+            $rows = [];
+            while ($r = $res->fetch_assoc()) $rows[] = $r;
+            return $rows;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+}
+
+if (!function_exists('islamiyya_book')) {
+    /** A single book row, or null. */
+    function islamiyya_book($conn, $book_id) {
+        $book_id = (int)$book_id;
+        if ($book_id <= 0) return null;
+        try {
+            $stmt = $conn->prepare("SELECT * FROM islamiyya_books WHERE id = ? LIMIT 1");
+            $stmt->bind_param("i", $book_id);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            return $r ?: null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('islamiyya_book_readiness')) {
+    /**
+     * Upload/readiness details for a book.
+     * Returns ['uploaded' => n, 'expected' => n, 'missing_questions' => [lesson_no], 'ready' => bool]
+     */
+    function islamiyya_book_readiness($conn, $book) {
+        $book_id = (int)$book['id'];
+        $expected = (int)$book['total_lessons'];
+        $uploaded = 0;
+        $missing_q = [];
+        try {
+            $res = $conn->query("SELECT id, lesson_no FROM islamiyya_lessons WHERE book_id = $book_id ORDER BY lesson_no ASC");
+            while ($l = $res->fetch_assoc()) {
+                $uploaded++;
+                $cnt = (int)$conn->query("SELECT COUNT(*) c FROM islamiyya_questions WHERE lesson_id = " . (int)$l['id'])
+                                            ->fetch_assoc()['c'];
+                if ($cnt < 1) $missing_q[] = (int)$l['lesson_no'];
+            }
+        } catch (Throwable $e) { /* ignore */ }
+
+        $ready = $expected > 0 && $uploaded >= $expected && empty($missing_q);
+        return [
+            'uploaded'         => $uploaded,
+            'expected'         => $expected,
+            'missing_questions'=> $missing_q,
+            'ready'            => $ready,
+        ];
+    }
+}
+
+if (!function_exists('islamiyya_book_is_live')) {
+    /**
+     * A book is effectively live only when the admin has published it AND it
+     * is fully ready (all lessons uploaded, every lesson has a question).
+     * $book may be a book row or an id.
+     */
+    function islamiyya_book_is_live($conn, $book) {
+        if (is_array($book)) {
+            $row = $book;
+        } else {
+            $row = islamiyya_book($conn, (int)$book);
+            if (!$row) return false;
+        }
+        if (($row['status'] ?? '') !== 'live') return false;
+        $ready = islamiyya_book_readiness($conn, $row);
+        return $ready['ready'];
+    }
+}
+
+if (!function_exists('islamiyya_book_lessons')) {
+    /** Lessons of a book ordered by lesson_no. */
+    function islamiyya_book_lessons($conn, $book_id) {
+        $book_id = (int)$book_id;
+        if ($book_id <= 0) return [];
+        try {
+            $stmt = $conn->prepare("SELECT * FROM islamiyya_lessons WHERE book_id = ? ORDER BY lesson_no ASC");
+            $stmt->bind_param("i", $book_id);
+            $stmt->execute();
+            $rows = [];
+            while ($r = $stmt->get_result()->fetch_assoc()) $rows[] = $r;
+            return $rows;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+}
+
+if (!function_exists('islamiyya_lesson')) {
+    /** A single lesson row, or null. */
+    function islamiyya_lesson($conn, $lesson_id) {
+        $lesson_id = (int)$lesson_id;
+        if ($lesson_id <= 0) return null;
+        try {
+            $stmt = $conn->prepare("SELECT * FROM islamiyya_lessons WHERE id = ? LIMIT 1");
+            $stmt->bind_param("i", $lesson_id);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            return $r ?: null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('islamiyya_lesson_questions')) {
+    /** MCQ questions for a lesson ordered by sort_order. */
+    function islamiyya_lesson_questions($conn, $lesson_id) {
+        $lesson_id = (int)$lesson_id;
+        if ($lesson_id <= 0) return [];
+        try {
+            $stmt = $conn->prepare("SELECT * FROM islamiyya_questions WHERE lesson_id = ? ORDER BY sort_order ASC, id ASC");
+            $stmt->bind_param("i", $lesson_id);
+            $stmt->execute();
+            $rows = [];
+            while ($r = $stmt->get_result()->fetch_assoc()) $rows[] = $r;
+            return $rows;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+}
+
+if (!function_exists('islamiyya_book_progress')) {
+    /**
+     * The student's enrollment row for a book (created lazily).
+     * Returns false if the tables are missing or insertion fails.
+     */
+    function islamiyya_book_progress($conn, $student_id, $book_id) {
+        $student_id = (int)$student_id;
+        $book_id    = (int)$book_id;
+        if ($student_id <= 0 || $book_id <= 0) return null;
+        if (!db_table_exists($conn, 'islamiyya_book_progress')) return null;
+        try {
+            $stmt = $conn->prepare("SELECT * FROM islamiyya_book_progress WHERE student_id = ? AND book_id = ? LIMIT 1");
+            $stmt->bind_param("ii", $student_id, $book_id);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            if ($row) return $row;
+
+            $ins = $conn->prepare("INSERT INTO islamiyya_book_progress (student_id, book_id, status, started_at) VALUES (?, ?, 'active', NOW())");
+            $ins->bind_param("ii", $student_id, $book_id);
+            $ins->execute();
+            return islamiyya_book_progress($conn, $student_id, $book_id);
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('islamiyya_lesson_progress')) {
+    /**
+     * The student's per-lesson progress row (created lazily).
+     * returns ['best_score', 'attempts', 'status', 'completed_at'] or null.
+     */
+    function islamiyya_lesson_progress($conn, $student_id, $book_id, $lesson_no) {
+        $student_id = (int)$student_id;
+        $book_id    = (int)$book_id;
+        $lesson_no  = (int)$lesson_no;
+        if ($student_id <= 0 || $book_id <= 0 || $lesson_no <= 0) return null;
+        if (!db_table_exists($conn, 'islamiyya_lesson_progress')) return null;
+        try {
+            $stmt = $conn->prepare("SELECT * FROM islamiyya_lesson_progress WHERE student_id = ? AND book_id = ? AND lesson_no = ? LIMIT 1");
+            $stmt->bind_param("iii", $student_id, $book_id, $lesson_no);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            if ($row) return $row;
+
+            $ins = $conn->prepare("INSERT INTO islamiyya_lesson_progress (student_id, book_id, lesson_no, attempts) VALUES (?, ?, ?, 0)");
+            $ins->bind_param("iii", $student_id, $book_id, $lesson_no);
+            $ins->execute();
+            return islamiyya_lesson_progress($conn, $student_id, $book_id, $lesson_no);
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('islamiyya_lesson_completed')) {
+    /** True when the student passed this lesson's quiz at >= 90%. */
+    function islamiyya_lesson_completed($conn, $student_id, $book_id, $lesson_no) {
+        $p = islamiyya_lesson_progress($conn, $student_id, $book_id, $lesson_no);
+        if (!$p) return false;
+        if (($p['status'] ?? '') === 'completed') return true;
+        return $p['best_score'] !== null && (float)$p['best_score'] >= 90.0;
+    }
+}
+
+if (!function_exists('islamiyya_lesson_unlocked')) {
+    /**
+     * Lesson 1 is always available; lesson N>1 unlocks only when lesson N-1
+     * has been passed at >= 90%. Server-side gate (never trusts the UI).
+     */
+    function islamiyya_lesson_unlocked($conn, $student_id, $book_id, $lesson_no) {
+        $lesson_no = (int)$lesson_no;
+        if ($lesson_no <= 1) return true;
+        return islamiyya_lesson_completed($conn, $student_id, $book_id, $lesson_no - 1);
+    }
+}
+
+if (!function_exists('islamiyya_current_lesson_no')) {
+    /**
+     * The first lesson the student still needs to complete (1-based).
+     * Returns null when the whole book is complete.
+     */
+    function islamiyya_current_lesson_no($conn, $student_id, $book_id) {
+        $lessons = islamiyya_book_lessons($conn, $book_id);
+        if (empty($lessons)) return null;
+        foreach ($lessons as $l) {
+            if (!islamiyya_lesson_completed($conn, $student_id, $book_id, (int)$l['lesson_no'])) {
+                return (int)$l['lesson_no'];
+            }
+        }
+        return null;
+    }
+}
+
+if (!function_exists('islamiyya_book_pct')) {
+    /** Whole-book progress percentage for a student (0-100). */
+    function islamiyya_book_pct($conn, $student_id, $book_id) {
+        $lessons = islamiyya_book_lessons($conn, $book_id);
+        $total = count($lessons);
+        if ($total === 0) return 0;
+        $done = 0;
+        foreach ($lessons as $l) {
+            if (islamiyya_lesson_completed($conn, $student_id, $book_id, (int)$l['lesson_no'])) $done++;
+        }
+        return (int)round(($done / $total) * 100);
+    }
+}
+
+if (!function_exists('islamiyya_pdf_unlocked')) {
+    /**
+     * The single all-lessons PDF handout unlocks once the student passes the
+     * FIRST lesson. After that it stays unlocked (one-time handout).
+     */
+    function islamiyya_pdf_unlocked($conn, $student_id, $book_id) {
+        return islamiyya_lesson_completed($conn, $student_id, $book_id, 1);
+    }
+}
+
+if (!function_exists('islamiyya_can_access')) {
+    /**
+     * A student may open the learning page only when the book is live AND
+     * they are subscribed. Every student can browse the catalog regardless.
+     */
+    function islamiyya_can_access($conn, $student_id, $book) {
+        if (is_array($book)) {
+            $row = $book;
+        } else {
+            $row = islamiyya_book($conn, (int)$book);
+            if (!$row) return false;
+        }
+        return islamiyya_book_is_live($conn, $row) && islamiyya_subscribed($conn, $student_id);
+    }
+}
+
+if (!function_exists('islamiyya_all_progress')) {
+    /** Admin overview: every student's enrollment + lesson counts per book. */
+    function islamiyya_all_progress($conn) {
+        try {
+            $res = $conn->query("
+                SELECT
+                    bp.student_id,
+                    u.name AS student_name,
+                    bp.book_id,
+                    b.title AS book_title,
+                    b.total_lessons,
+                    bp.status,
+                    bp.started_at,
+                    bp.completed_at,
+                    (SELECT COUNT(*) FROM islamiyya_lesson_progress lp
+                        WHERE lp.student_id = bp.student_id AND lp.book_id = bp.book_id AND lp.status = 'completed') AS completed_lessons
+                FROM islamiyya_book_progress bp
+                JOIN users u ON u.id = bp.student_id
+                JOIN islamiyya_books b ON b.id = bp.book_id
+                ORDER BY bp.started_at DESC
+            ");
+            $rows = [];
+            while ($r = $res->fetch_assoc()) $rows[] = $r;
+            return $rows;
+        } catch (Throwable $e) {
+            return [];
+        }
     }
 }

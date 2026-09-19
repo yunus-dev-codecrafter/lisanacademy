@@ -100,7 +100,25 @@ if ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1) {
 </div>
 <?php endif; ?>
 
+<?php
+/* Digital Islamiyya — live-count backing the student's catalog card.
+ * Same publish rule as the manager + admin card: a book only ever counts
+ * as live once its record is status=live AND every lesson + full
+ * question pack is uploaded. Until then the card stays sealed. */
+$islamiyya_live_count = 0;
+foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
+    $islamiyya_readiness = islamiyya_book_readiness($conn, $islamiyya_book);
+    if ((int)($islamiyya_book['status'] ?? 0) === 1 && !empty($islamiyya_readiness['ready'])) $islamiyya_live_count++;
+}
+?>
 <div class="stat-grid animate-rise d1">
+    <a class="stat-card stat-gold" href="islamiyya.php"
+        title="Digital Islamiyya — curated foundational books, sealed until fully ready">
+        <span class="stat-ico"><?= ui_icon('book-open') ?></span>
+        <span class="stat-label">Digital Islamiyya</span>
+        <span class="stat-value"><?= $islamiyya_live_count ?></span>
+        <span class="stat-sub"><?= $islamiyya_live_count > 0 ? 'live books — open in the catalog' : 'sealed — Coming Soon' ?></span>
+    </a>
     <?php if ($is_hafiz): ?>
     <?php
     $hafiz_revision = hafiz_get_active_revision($conn, $student_id);

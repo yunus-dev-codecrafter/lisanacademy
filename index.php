@@ -1,5 +1,5 @@
-<?php
-// htdocs/index.php — Lisanun Mubeen Academy public homepage.
+﻿<?php
+// htdocs/index.php â€” Lisanun Mubeen Academy public homepage.
 // The academy's primary marketing / conversion page.
 
 require_once __DIR__ . '/config/security/session.php';
@@ -80,7 +80,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
 <meta property="og:description" content="Learn, recite and progress in your Qur'an journey with Lisanun Mubeen Academy through structured online learning, live recitation, progress tracking and certificates.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="/">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>ðŸ“–</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -137,7 +137,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
             <h1>Come learn and let the Qur'an be your <span class="gold-text">life companion</span>.</h1>
             <p class="hero-tagline">"Come learn and let the Qur'an be your life companion."</p>
             <p class="hero-sub">
-                Learn the Qur'an through a structured online learning experience — guided live recitation with your
+                Learn the Qur'an through a structured online learning experience â€” guided live recitation with your
                 teacher, clear progress tracking, termly examinations and certificates for every Surah you complete.
             </p>
             <div class="hero-cta">
@@ -145,8 +145,8 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
                 <a class="btn btn-outline" href="/auth/login.php"><?= ui_icon('logout', 18) ?> Login</a>
             </div>
             <p class="hero-note">
-                <span class="dot"></span> Join today for <strong>₦3,000 per term</strong> &nbsp;·&nbsp;
-                <span class="dot"></span> No hidden charges &nbsp;·&nbsp;
+                <span class="dot"></span> Join today for <strong>â‚¦3,000 per term</strong> &nbsp;Â·&nbsp;
+                <span class="dot"></span> No hidden charges &nbsp;Â·&nbsp;
                 <span class="dot"></span> Your journey starts on WhatsApp
             </p>
         </div>
@@ -181,7 +181,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
                         <span class="m-ico g"><?= ui_icon('trophy', 16) ?></span>
                         <div style="flex:1;">
                             <p>Overall Progress</p>
-                            <span>Keep going — every verse counts</span>
+                            <span>Keep going â€” every verse counts</span>
                         </div>
                     </div>
                 </div>
@@ -197,6 +197,41 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
         </div>
     </div>
 </header>
+
+<!-- ============ DIGITAL ISLAMIYYA ADVERTISEMENT ============ -->
+<?php
+$ad_image = 'assets/images/digital_islamiyya.png';
+$ad_target = $registered ? ($dashboard_url) : '/register.php';
+$ad_cta = $registered ? 'Explore Digital Islamiyya' : 'Start with the Academy';
+if (function_exists('islamiyya_books')) {
+    $islamiyya_live_any = false;
+    foreach (islamiyya_books($conn) as $ab) {
+        if (islamiyya_book_is_live($conn, $ab)) { $islamiyya_live_any = true; break; }
+    }
+    $ad_cta = $islamiyya_live_any ? 'Start Learning now' : ($registered ? 'Explore Digital Islamiyya' : 'Start with the Academy');
+    $ad_target = $islamiyya_live_any ? '/student/islamiyya.php' : ($registered ? $dashboard_url : '/register.php');
+} else {
+    $ad_target = '/student/islamiyya.php';
+}
+?>
+<section class="ad-section" id="islamiyya-ad" aria-label="Digital Islamiyya advertisement">
+    <div class="container">
+        <div class="ad-band animate-rise">
+            <div class="ad-media">
+                <img src="<?= htmlspecialchars($ad_image) ?>" alt="Digital Islamiyya â€” classical Islamic books program" loading="lazy">
+            </div>
+            <div class="ad-body">
+                <span class="ad-eyebrow"><?= ui_icon('book-open', 14) ?> New Program</span>
+                <h2>Digital Islamiyya</h2>
+                <p>Learn the classical Islamic texts with your own teacher - audio and video lessons, graded quizzes, and weekly-pdf handouts. Your path through Tauhid, Fiqh, Hadith, Seerah and Arabic, unlock lesson by lesson.</p>
+                <div class="ad-cta">
+                    <a class="btn btn-gold" href="<?= htmlspecialchars($ad_target) ?>"><?= ui_icon('arrow-right', 17) ?> <?= htmlspecialchars($ad_cta) ?></a>
+                    <span class="ad-note"><?= ui_icon('clock', 14) ?> Books become live as soon as their lessons and quizzes are ready.</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
 
 <!-- ============ NUMBERS / TRUST ============ -->
 <section class="section numbers" style="padding:44px 0 24px;">
@@ -235,7 +270,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
         <?php else: ?>
             <div class="grad-empty">
                 <?= ui_icon('gem', 24) ?>
-                <p>No graduates yet — the first student to complete the entire Qur'an will appear here.</p>
+                <p>No graduates yet â€” the first student to complete the entire Qur'an will appear here.</p>
             </div>
         <?php endif; ?>
     </div>
@@ -247,7 +282,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
         <div class="section-head">
             <span class="kicker">Why Lisanun Mubeen</span>
             <h2>Everything You Need for a Consistent Qur'an Journey</h2>
-            <p>A complete online learning platform — not just a WhatsApp class.</p>
+            <p>A complete online learning platform â€” not just a WhatsApp class.</p>
         </div>
         <div class="features-grid">
             <div class="feature-card">
@@ -283,7 +318,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
             <div class="feature-card">
                 <span class="f-ico g"><?= ui_icon('refresh', 22) ?></span>
                 <h3>Hafiz Revision Track</h3>
-                <p>Already a Hafiz? Revise the entire Qur'an from memory — page by page, 20 pages every week, with a short weekly test to keep you sharp.</p>
+                <p>Already a Hafiz? Revise the entire Qur'an from memory â€” page by page, 20 pages every week, with a short weekly test to keep you sharp.</p>
             </div>
         </div>
     </div>
@@ -306,7 +341,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
             <div class="step">
                 <div class="step-num">2</div>
                 <h3>Contact &amp; Payment</h3>
-                <p>We contact you through WhatsApp with your payment details — just ₦3,000 per term.</p>
+                <p>We contact you through WhatsApp with your payment details â€” just â‚¦3,000 per term.</p>
             </div>
             <div class="step">
                 <div class="step-num">3</div>
@@ -411,7 +446,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
         </div>
         <div class="pricing-wrap">
             <div class="price-card">
-                <div class="price"><sup>₦</sup>3,000</div>
+                <div class="price"><sup>â‚¦</sup>3,000</div>
                 <div class="per">PER TERM</div>
                 <div class="price-rows">
                     <div class="price-row">
@@ -469,7 +504,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
             </div>
             <div class="aud-item">
                 <span class="ai"><?= ui_icon('refresh', 18) ?></span>
-                <div><b>Hafiz of the Qur'an</b><p>Revise from memory with a structured page-by-page plan — 20 pages each week and a short weekly test to keep your memorization strong.</p></div>
+                <div><b>Hafiz of the Qur'an</b><p>Revise from memory with a structured page-by-page plan â€” 20 pages each week and a short weekly test to keep your memorization strong.</p></div>
             </div>
         </div>
     </div>
@@ -485,13 +520,13 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
         <div class="faq-wrap" id="faqWrap">
 
             <div class="faq-item">
-                <button class="faq-q" type="button">I've already memorised the Qur'an — is this for me?<span class="chev"><?= ui_icon('chevron-down', 18) ?></span></button>
+                <button class="faq-q" type="button">I've already memorised the Qur'an â€” is this for me?<span class="chev"><?= ui_icon('chevron-down', 18) ?></span></button>
                 <div class="faq-a"><div class="faq-a-inner">Yes! Hafiz of the Qur'an have a dedicated <strong>revision track</strong>: you revise the full Qur'an from memory, 20 pages every week, with a short weekly test on what you've revised. Your teacher listens to your recitation and marks each test <strong>Pass or Fail</strong>, so your memorization stays sharp.</div></div>
             </div>
 
             <div class="faq-item">
                 <button class="faq-q" type="button">How much is the fee?<span class="chev"><?= ui_icon('chevron-down', 18) ?></span></button>
-                <div class="faq-a"><div class="faq-a-inner">The fee is <strong>₦3,000 per term</strong>. Each term lasts about 4 months, with 3 terms per year.</div></div>
+                <div class="faq-a"><div class="faq-a-inner">The fee is <strong>â‚¦3,000 per term</strong>. Each term lasts about 4 months, with 3 terms per year.</div></div>
             </div>
 
             <div class="faq-item">
@@ -511,7 +546,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
 
             <div class="faq-item">
                 <button class="faq-q" type="button">How do I pay?<span class="chev"><?= ui_icon('chevron-down', 18) ?></span></button>
-                <div class="faq-a"><div class="faq-a-inner">Payment details are shared with you personally through <strong>WhatsApp</strong> after your application is received. The fee is ₦3,000 per term.</div></div>
+                <div class="faq-a"><div class="faq-a-inner">Payment details are shared with you personally through <strong>WhatsApp</strong> after your application is received. The fee is â‚¦3,000 per term.</div></div>
             </div>
 
             <div class="faq-item">
@@ -526,12 +561,12 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
 
             <div class="faq-item">
                 <button class="faq-q" type="button">Do students receive certificates?<span class="chev"><?= ui_icon('chevron-down', 18) ?></span></button>
-                <div class="faq-a"><div class="faq-a-inner">Yes — you receive a <strong>certificate of completion</strong> for every Surah you successfully complete, which you can view and download from your dashboard.</div></div>
+                <div class="faq-a"><div class="faq-a-inner">Yes â€” you receive a <strong>certificate of completion</strong> for every Surah you successfully complete, which you can view and download from your dashboard.</div></div>
             </div>
 
             <div class="faq-item">
                 <button class="faq-q" type="button">How does teacher feedback work?<span class="chev"><?= ui_icon('chevron-down', 18) ?></span></button>
-                <div class="faq-a"><div class="faq-a-inner">After you submit a recitation, your teacher reviews it and gives you a rating, corrections and personal guidance — all visible in your dashboard.</div></div>
+                <div class="faq-a"><div class="faq-a-inner">After you submit a recitation, your teacher reviews it and gives you a rating, corrections and personal guidance â€” all visible in your dashboard.</div></div>
             </div>
 
             <div class="faq-item">
@@ -548,7 +583,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
     <div class="container">
         <div class="cta-band">
             <h2>Begin Your Qur'an Journey Today</h2>
-            <p>Join Lisanun Mubeen Academy and make the Qur'an your life companion — starting at just ₦3,000 per term.</p>
+            <p>Join Lisanun Mubeen Academy and make the Qur'an your life companion â€” starting at just â‚¦3,000 per term.</p>
             <div class="cta-actions">
                 <a class="btn btn-gold btn-lg" href="/register.php"><?= ui_icon('user', 18) ?> Register Now</a>
                 <a class="btn btn-outline btn-lg" href="<?= $contact_wa ?>" target="_blank" rel="noopener"><?= ui_icon('phone', 18) ?> Chat on WhatsApp</a>
@@ -560,7 +595,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
                 <span class="ci" style="background:linear-gradient(135deg,#25d366,#128c7e);"><?= ui_icon('phone', 20) ?></span>
                 <b>WhatsApp</b>
                 <p>For applications, payments and enquiries.</p>
-                <a href="<?= $contact_wa ?>" target="_blank" rel="noopener">Message us on WhatsApp →</a>
+                <a href="<?= $contact_wa ?>" target="_blank" rel="noopener">Message us on WhatsApp â†’</a>
             </div>
             <div class="contact-card">
                 <span class="ci" style="background:linear-gradient(135deg,var(--emerald-700),var(--emerald-500));"><?= ui_icon('mail', 20) ?></span>
@@ -577,7 +612,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
                 <span class="ci" style="background:linear-gradient(135deg,#2563eb,#60a5fa);"><?= ui_icon('book-open', 20) ?></span>
                 <b>Already a Student?</b>
                 <p>Return to your dashboard to continue learning.</p>
-                <a href="/auth/login.php">Login to your account →</a>
+                <a href="/auth/login.php">Login to your account â†’</a>
             </div>
         </div>
     </div>
@@ -614,7 +649,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
                 <a href="mailto:lisanunmubeenacademy@gmail.com">Email</a>
             </div>
         </div>
-        <div class="footer-bottom">© <?= date('Y') ?> Lisanun Mubeen Academy. All rights reserved.</div>
+        <div class="footer-bottom">Â© <?= date('Y') ?> Lisanun Mubeen Academy. All rights reserved.</div>
     </div>
 </footer>
 

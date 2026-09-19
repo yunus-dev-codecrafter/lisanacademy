@@ -1,0 +1,6 @@
+subject:              book:           lesson type:
+Tauhid             الأصول الثلاثة            audio
+Fiqhu              متن الأخضري            audio
+Hadith            الأربعون النووية            audio
+Seerah             أرجوزة الميئية            audio
+Arabic               لغة العربية            audio/video (when necessary).

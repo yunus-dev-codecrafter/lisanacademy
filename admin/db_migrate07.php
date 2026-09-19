@@ -13,6 +13,14 @@ if (!db_column_exists($conn, 'student_learning', 'start_verse')) $missing[] = 's
 
 $pending = count($missing);
 
+/* Confirmed WhatsApp numbers queued for seeding onto students (matched by
+   exact name). Add new entries here instead of editing records by hand —
+   re-running the migration is safe because seeding is idempotent. */
+$PHONE_SEED = [
+    'Aminu Ishaq Tukur' => '+234 810 919 9300',
+];
+$has_phone_seed = count($PHONE_SEED) > 0;
+
 /* ============ RUN MIGRATION ============ */
 $steps = [];
 $ran = false;
@@ -63,6 +71,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } else {
         $steps[] = ['student_learning.start_verse', 'already present'];
+    }
+
+    /* 4. Seed confirmed WhatsApp numbers for specific students (matched by
+          exact name). Add new entries to $PHONE_SEED here instead of editing
+          student records by hand — re-running the migration is safe. */
+    if (db_column_exists($conn, 'users', 'phone')) {
+        foreach ($PHONE_SEED as $name => $phone) {
+            try {
+                $normalized = preg_replace('/[^0-9]/', '', (string)$phone);
+                $stmt = $conn->prepare("UPDATE users SET phone = ? WHERE name = ? AND role = 'student'");
+                $stmt->bind_param("ss", $normalized, $name);
+                $stmt->execute();
+                $affected = $conn->affected_rows;
+                $steps[] = ['users.phone seed (' . $name . ')', $affected > 0 ? "updated ($affected)" : 'no matching student'];
+            } catch (Throwable $e) {
+                $steps[] = ['users.phone seed (' . $name . ')', 'ERROR — ' . $e->getMessage()];
+            }
+        }
+    } else {
+        $steps[] = ['users.phone seed (specific students)', 'skipped (users.phone missing)'];
     }
 }
 
@@ -126,15 +154,20 @@ if (!db_column_exists($conn, 'student_learning', 'start_verse')) $missing_after[
 
     <div class="card animate-rise d1" style="max-width:760px;">
         <h3 style="margin-top:0;">Current Schema Status</h3>
-        <?php if ($pending === 0): ?>
+        <?php if ($pending === 0 && !$has_phone_seed): ?>
             <div class="alert alert-success" style="margin-top:0;"><?= ui_icon('check-circle', 16) ?> Nothing to do — the database already has every column this feature needs.</div>
         <?php else: ?>
-            <div class="alert alert-warning" style="margin-top:0;"><?= ui_icon('alert', 16) ?> <strong><?= $pending ?></strong> object(s) missing: <code><?= htmlspecialchars(implode('</code>, <code>', $missing)) ?></code></div>
-            <p class="small text-muted">
-                <strong>users.phone</strong> lets the admin "Message Student" WhatsApp feature open the student's own
-                number instead of falling back to the academy number. <strong>student_learning.start_verse</strong>
-                powers the new "start from a chosen verse" option in My Learning.
-            </p>
+            <?php if ($pending > 0): ?>
+                <div class="alert alert-warning" style="margin-top:0;"><?= ui_icon('alert', 16) ?> <strong><?= $pending ?></strong> object(s) missing: <code><?= htmlspecialchars(implode('</code>, <code>', $missing)) ?></code></div>
+                <p class="small text-muted">
+                    <strong>users.phone</strong> lets the admin "Message Student" WhatsApp feature open the student's own
+                    number instead of falling back to the academy number. <strong>student_learning.start_verse</strong>
+                    powers the new "start from a chosen verse" option in My Learning.
+                </p>
+            <?php endif; ?>
+            <?php if ($has_phone_seed): ?>
+                <div class="alert alert-info" style="margin-top:0;"><?= ui_icon('phone', 16) ?> <strong><?= count($PHONE_SEED) ?></strong> confirmed WhatsApp number(s) queued for seeding (matched by student name). Re-running is safe — existing numbers are simply re-set to these.</div>
+            <?php endif; ?>
             <form method="POST" onsubmit="return confirm('Run the student-phone + start-verse schema migration now?');">
                 <?= csrf_field() ?>
                 <button class="btn btn-gold btn-lg" type="submit"><?= ui_icon('refresh', 17) ?> Run Migration</button>

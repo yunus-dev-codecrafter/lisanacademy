@@ -97,6 +97,7 @@ if (!function_exists('ui_sidebar')) {
                 : 0;
             $items = [
                 'dashboard'    => ['dashboard.php',        'grid',   'Dashboard'],
+                'islamiyya'    => ['islamiyya.php',        'book-open', 'Digital Islamiyya'],
                 'students'     => ['students.php',         'users',  'Students'],
                 'applications' => ['applications.php',     'clipboard', 'Applications' . ($pending_apps > 0 ? ' <span class="nav-badge">' . $pending_apps . '</span>' : '')],
                 'teaching'     => ['teaching.php',         'book',   'Teaching' . ($pending_teaching > 0 ? ' <span class="nav-badge">' . $pending_teaching . '</span>' : '')],
@@ -117,6 +118,7 @@ if (!function_exists('ui_sidebar')) {
         if ($is_hafiz) {
             $items = [
                 'dashboard'    => ['dashboard.php',        'grid',   'Dashboard'],
+                'islamiyya'    => ['islamiyya.php',        'book-open', 'Digital Islamiyya'],
                 'revision'     => ['hafiz_revision.php',   'book',   'Qur\'an Revision'],
                 'test'         => ['hafiz_test.php',       'calendar-check', 'Weekly Test'],
                 'announcements'=> ['announcements.php',    'bell',   'Announcements'],
@@ -127,6 +129,7 @@ if (!function_exists('ui_sidebar')) {
         } else {
             $items = [
                 'dashboard'    => ['dashboard.php',        'grid',   'Dashboard'],
+                'islamiyya'    => ['islamiyya.php',        'book-open', 'Digital Islamiyya'],
                 'learning'     => ['my_learning.php',      'book',   'My Learning'],
                 'feedback'     => ['feedback.php',         'chat',   'Feedback'],
                 'certificate'  => ['certificate.php',      'gem',    'Certificate'],
