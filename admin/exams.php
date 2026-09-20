@@ -137,7 +137,7 @@ if ($schema_ready && $tier_ready) {
                                 <form method="POST" action="reset_exam_attempt.php" onsubmit="return confirm('Delete this reviewed exam permanently? The student\'s exam audio will be deleted and their exam locks cleared.');">
                                     <?= csrf_field() ?>
                                     <input type="hidden" name="attempt_id" value="<?= (int)$e['id'] ?>">
-                                    <button class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border);" type="submit"><?= ui_icon('trash', 14) ?> Delete</button>
+                                    <button class="btn btn-sm btn-danger" type="submit"><?= ui_icon('trash', 14) ?> Delete</button>
                                 </form>
                             <?php endif; ?>
                             <?php endif; ?>

@@ -83,7 +83,7 @@ $announcements = $conn->query("SELECT id, title, message, created_at FROM announ
             <form method="post" action="announcements.php" style="display:inline;" onsubmit="return confirm('Delete this announcement?');">
                 <input type="hidden" name="delete" value="<?= $row['id'] ?>">
                 <?= csrf_field() ?>
-                <button class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border);"><?= ui_icon('trash', 15) ?> Delete</button>
+                <button class="btn btn-sm btn-danger"><?= ui_icon('trash', 15) ?> Delete</button>
             </form>
         </div>
     <?php endwhile; ?>

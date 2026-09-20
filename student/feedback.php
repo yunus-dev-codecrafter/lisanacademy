@@ -127,7 +127,7 @@ if ($unseen_row) {
           onsubmit="return confirm('Delete this feedback?');" style="margin-top:14px;">  
         <input type="hidden" name="recitation_id" value="<?= (int)$row['id'] ?>">  
         <?= csrf_field() ?>
-        <button class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border);"><?= ui_icon('trash', 15) ?> Delete Feedback</button>  
+        <button class="btn btn-sm btn-danger"><?= ui_icon('trash', 15) ?> Delete Feedback</button>  
     </form>
     <?php endif; ?>
 

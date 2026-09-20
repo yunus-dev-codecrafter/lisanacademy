@@ -229,7 +229,7 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
                 <form method="POST" action="delete_recitation.php"
                       onsubmit="return confirm('Delete this recitation permanently?');">
                     <input type="hidden" name="rec_id" value="<?= (int)$r['rec_id'] ?>">
-                    <button type="submit" class="btn btn-sm btn-danger btn-ghost" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border);"><?= ui_icon('trash', 15) ?> Delete Recitation</button>
+                    <button type="submit" class="btn btn-sm btn-danger"><?= ui_icon('trash', 15) ?> Delete Recitation</button>
                 </form>
             </div>
         </div>
@@ -293,7 +293,7 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
         <form method="POST" action="delete_request.php"
         onsubmit="return confirm('Delete this request permanently?');">
             <input type="hidden" name="lesson_id" value="<?= (int)$row['lesson_id'] ?>">
-            <button type="submit" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border);"><?= ui_icon('trash', 15) ?> Delete Request</button>
+            <button type="submit" class="btn btn-sm btn-danger"><?= ui_icon('trash', 15) ?> Delete Request</button>
         </form>
     </div>
 
@@ -461,7 +461,7 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
               onsubmit="return confirm('Delete this weekly test permanently? The student will need to generate a new one.');">
             <input type="hidden" name="test_id" value="<?= (int)$ht['test_id'] ?>">
             <?= csrf_field() ?>
-            <button type="submit" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border);"><?= ui_icon('trash', 15) ?> Delete Test</button>
+            <button type="submit" class="btn btn-sm btn-danger"><?= ui_icon('trash', 15) ?> Delete Test</button>
         </form>
     </div>
 

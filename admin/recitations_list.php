@@ -73,7 +73,7 @@ $recitations = $conn->query("
                 <td>
                     <form method="post" action="/admin/delete_recitation.php" onsubmit="return confirm('Are you sure you want to delete this recitation request?');">
                         <input type="hidden" name="rec_id" value="<?= $r['recitation_id'] ?>">
-                        <button type="submit" class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border);"><?= ui_icon('trash', 15) ?> Delete</button>
+                        <button type="submit" class="btn btn-sm btn-danger"><?= ui_icon('trash', 15) ?> Delete</button>
                     </form>
                 </td>
             </tr>

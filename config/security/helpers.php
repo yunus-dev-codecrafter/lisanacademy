@@ -3152,3 +3152,81 @@ if (!function_exists('islamiyya_all_progress')) {
         }
     }
 }
+
+if (!function_exists('islamiyya_has_interest')) {
+    /**
+     * True when the student already saved a slot (interest) for this book.
+     * Safe to call before db_migrate15 has run (returns false).
+     */
+    function islamiyya_has_interest($conn, $student_id, $book_id) {
+        $student_id = (int)$student_id;
+        $book_id = (int)$book_id;
+        if ($student_id <= 0 || $book_id <= 0) return false;
+        if (!db_table_exists($conn, 'islamiyya_interests')) return false;
+        try {
+            $stmt = $conn->prepare("SELECT id FROM islamiyya_interests WHERE student_id = ? AND book_id = ? LIMIT 1");
+            $stmt->bind_param("ii", $student_id, $book_id);
+            $stmt->execute();
+            return $stmt->get_result()->num_rows > 0;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('islamiyya_interest_count')) {
+    /**
+     * How many students saved a slot for this book (social proof on the
+     * student catalog card). Returns 0 when the table is missing.
+     */
+    function islamiyya_interest_count($conn, $book_id) {
+        $book_id = (int)$book_id;
+        if ($book_id <= 0) return 0;
+        if (!db_table_exists($conn, 'islamiyya_interests')) return 0;
+        try {
+            $stmt = $conn->prepare("SELECT COUNT(*) c FROM islamiyya_interests WHERE book_id = ?");
+            $stmt->bind_param("i", $book_id);
+            $stmt->execute();
+            return (int)$stmt->get_result()->fetch_assoc()['c'];
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+}
+
+if (!function_exists('islamiyya_save_interest')) {
+    /**
+     * Record a student's slot-saving interest for a book (idempotent —
+     * a second save for the same student+book is a no-op returning true).
+     */
+    function islamiyya_save_interest($conn, $student_id, $book_id) {
+        $student_id = (int)$student_id;
+        $book_id = (int)$book_id;
+        if ($student_id <= 0 || $book_id <= 0) return false;
+        if (!db_table_exists($conn, 'islamiyya_interests')) return false;
+        try {
+            $stmt = $conn->prepare("INSERT IGNORE INTO islamiyya_interests (student_id, book_id) VALUES (?, ?)");
+            $stmt->bind_param("ii", $student_id, $book_id);
+            return $stmt->execute();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('islamiyya_remove_interest')) {
+    /** Withdraw a student's saved slot for a book. */
+    function islamiyya_remove_interest($conn, $student_id, $book_id) {
+        $student_id = (int)$student_id;
+        $book_id = (int)$book_id;
+        if ($student_id <= 0 || $book_id <= 0) return false;
+        if (!db_table_exists($conn, 'islamiyya_interests')) return false;
+        try {
+            $stmt = $conn->prepare("DELETE FROM islamiyya_interests WHERE student_id = ? AND book_id = ?");
+            $stmt->bind_param("ii", $student_id, $book_id);
+            return $stmt->execute();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}

@@ -117,17 +117,28 @@ if ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1) {
  * as live once its record is status=live AND every lesson + full
  * question pack is uploaded. Until then the card stays sealed. */
 $islamiyya_live_count = 0;
+$islamiyya_total_count = 0;
 foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
+    $islamiyya_total_count++;
     if (islamiyya_book_is_live($conn, $islamiyya_book)) $islamiyya_live_count++;
 }
+$islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
 ?>
+<?php if ($islamiyya_total_count > 0 && $islamiyya_live_count === 0): ?>
+<div class="alert alert-warning animate-rise d1" style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;">
+    <?= ui_icon('book-open', 18) ?>
+    <span style="flex:1;min-width:220px;"><strong>New program: Digital Islamiyya is coming soon.</strong> Classical books in Tauhid, Fiqh, Hadith, Seerah and Arabic — explore the catalog and save your slot today.</span>
+    <a class="btn btn-gold btn-sm" href="islamiyya.php"><?= ui_icon('arrow-right', 15) ?> Explore &amp; Save My Slot</a>
+</div>
+<?php endif; ?>
 <div class="stat-grid animate-rise d1">
     <a class="stat-card stat-gold" href="islamiyya.php"
-        title="Digital Islamiyya — curated foundational books, sealed until fully ready">
+        title="Digital Islamiyya — classical books with audio/video lessons and quizzes"
+        style="border:2px solid var(--gold);box-shadow:0 8px 24px rgba(180,130,30,.18);">
         <span class="stat-ico"><?= ui_icon('book-open', 22) ?></span>
-        <span class="stat-label">Digital Islamiyya</span>
-        <span class="stat-value"><?= $islamiyya_live_count ?></span>
-        <span class="stat-sub"><?= $islamiyya_live_count > 0 ? 'live books — open in the catalog' : 'sealed — Coming Soon' ?></span>
+        <span class="stat-label">Digital Islamiyya <span class="badge badge-gold">New</span></span>
+        <span class="stat-value"><?= $islamiyya_live_count ?> <span class="small text-muted">/ <?= $islamiyya_total_count ?> live</span></span>
+        <span class="stat-sub"><?= $islamiyya_live_count > 0 ? 'live books — tap to start learning' : 'explore the books & save your slot' ?></span>
     </a>
     <?php if ($is_hafiz): ?>
     <?php
@@ -277,6 +288,13 @@ foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
 
 <div class="section-label animate-rise d3"><?= ui_icon('grid', 16) ?> Quick Actions</div>
 <div class="action-grid">
+    <a class="action-card action-purple animate-rise d3" href="islamiyya.php">
+        <span class="ac-ico"><?= ui_icon('book-open', 24) ?></span>
+        <span class="ac-title">Digital Islamiyya</span>
+        <span class="ac-sub">Classical books, lessons &amp; quizzes</span>
+        <?php if ($islamiyya_live_count > 0): ?><span class="badge badge-count ac-badge"><?=$islamiyya_live_count?> available</span>
+        <?php elseif ($islamiyya_coming_count > 0): ?><span class="badge badge-count ac-badge">Save your slot</span><?php endif; ?>
+    </a>
     <?php if (!$is_hafiz && $done > 0): ?>
     <a class="action-card action-gold animate-rise d3" href="certificate.php">
         <span class="ac-ico"><?= ui_icon('gem', 24) ?></span>

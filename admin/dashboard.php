@@ -123,6 +123,7 @@ foreach ((islamiyya_books($conn) ?? []) as $b) {
     $islamiyya_total++;
     if (islamiyya_book_is_live($conn, $b)) $islamiyya_live_count++;
 }
+$islamiyya_coming_count = $islamiyya_total - $islamiyya_live_count;
 ?>
 <div class="stat-grid animate-rise d1">
     <div class="stat-card stat-green">
@@ -146,11 +147,11 @@ foreach ((islamiyya_books($conn) ?? []) as $b) {
         <span class="stat-sub">Recitations · lessons · live</span>
     </div>
 
-    <a href="islamiyya.php" class="stat-card stat-blue" title="Digital Islamiyya — manage books">
+    <a href="islamiyya.php" class="stat-card stat-blue" title="Digital Islamiyya overview — readiness counts">
         <span class="stat-ico"><?= ui_icon('book-open', 22) ?></span>
-        <span class="stat-label">Digital Islamiyya</span>
-        <span class="stat-value"><?= $islamiyya_live_count ?> <span class="small text-muted">/ <?= $islamiyya_total ?></span></span>
-        <span class="stat-sub"><?= $islamiyya_live_count > 0 ? 'books live for students' : 'books sealed — coming soon' ?></span>
+        <span class="stat-label">Islamiyya Overview</span>
+        <span class="stat-value"><?= $islamiyya_live_count ?> <span class="small text-muted">/ <?= $islamiyya_total ?> live</span></span>
+        <span class="stat-sub"><?= $islamiyya_coming_count > 0 ? $islamiyya_coming_count . ' book(s) still being prepared' : 'all books live for students' ?></span>
     </a>
 </div>
 
@@ -179,10 +180,12 @@ foreach ((islamiyya_books($conn) ?? []) as $b) {
 
     <a href="islamiyya.php" class="action-card action-purple">
         <span class="ac-ico"><?= ui_icon('book-open', 24) ?></span>
-        <span class="ac-title">Digital Islamiyya</span>
-        <span class="ac-sub">Manage books, lessons &amp; quizzes</span>
+        <span class="ac-title">Manage Islamiyya</span>
+        <span class="ac-sub">Upload lessons, quizzes &amp; publish</span>
         <?php if ($islamiyya_live_count > 0): ?>
             <span class="badge badge-count ac-badge"><?= $islamiyya_live_count ?> live</span>
+        <?php elseif ($islamiyya_coming_count > 0): ?>
+            <span class="badge badge-count ac-badge"><?= $islamiyya_coming_count ?> coming soon</span>
         <?php endif; ?>
     </a>
 

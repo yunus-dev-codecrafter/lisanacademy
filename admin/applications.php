@@ -272,7 +272,7 @@ $error     = isset($_GET['error']) ? trim($_GET['error']) : '';
                                 <?= csrf_field() ?>
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="id" value="<?= (int)$a['id'] ?>">
-                                <button class="btn btn-sm" style="background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger-border);" type="submit"><?= ui_icon('trash', 14) ?> Delete</button>
+                                <button class="btn btn-sm btn-danger" type="submit"><?= ui_icon('trash', 14) ?> Delete</button>
                             </form>
                         </div>
                     </td>

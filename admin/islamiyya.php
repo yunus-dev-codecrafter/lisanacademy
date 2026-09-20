@@ -30,19 +30,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $author       = trim($_POST['author'] ?? '');
         $description  = trim($_POST['description'] ?? '');
         $media_type   = ($_POST['media_type'] ?? 'audio') === 'video' ? 'video' : 'audio';
-        $total_lessons= max(1, (int)($_POST['total_lessons'] ?? 1));
+        /* 0 = TBD: the admin often cannot tell the total until uploads are done. */
+        $total_lessons= max(0, (int)($_POST['total_lessons'] ?? 0));
         $sort_order   = (int)($_POST['sort_order'] ?? 0);
         $status       = ($_POST['status'] ?? '') === 'live' ? 'live' : 'coming_soon';
 
         if ($title === '') {
             $err = 'Book title is required.';
         } else {
+            /* title_en column only exists after db_migrate15 — stay working before it. */
+            $has_title_en = db_column_exists($conn, 'islamiyya_books', 'title_en');
             if ($id > 0) {
-                $stmt = $conn->prepare("UPDATE islamiyya_books SET title=?, title_en=?, author=?, description=?, media_type=?, total_lessons=?, sort_order=?, status=? WHERE id=?");
-                $stmt->bind_param("sssssiisi", $title, $title_en, $author, $description, $media_type, $total_lessons, $sort_order, $status, $id);
+                if ($has_title_en) {
+                    $stmt = $conn->prepare("UPDATE islamiyya_books SET title=?, title_en=?, author=?, description=?, media_type=?, total_lessons=?, sort_order=?, status=? WHERE id=?");
+                    $stmt->bind_param("sssssiisi", $title, $title_en, $author, $description, $media_type, $total_lessons, $sort_order, $status, $id);
+                } else {
+                    $stmt = $conn->prepare("UPDATE islamiyya_books SET title=?, author=?, description=?, media_type=?, total_lessons=?, sort_order=?, status=? WHERE id=?");
+                    $stmt->bind_param("ssssiisi", $title, $author, $description, $media_type, $total_lessons, $sort_order, $status, $id);
+                }
             } else {
-                $stmt = $conn->prepare("INSERT INTO islamiyya_books (title, title_en, author, description, media_type, total_lessons, sort_order, status) VALUES (?,?,?,?,?,?,?,?)");
-                $stmt->bind_param("sssssiis", $title, $title_en, $author, $description, $media_type, $total_lessons, $sort_order, $status);
+                if ($has_title_en) {
+                    $stmt = $conn->prepare("INSERT INTO islamiyya_books (title, title_en, author, description, media_type, total_lessons, sort_order, status) VALUES (?,?,?,?,?,?,?,?)");
+                    $stmt->bind_param("sssssiis", $title, $title_en, $author, $description, $media_type, $total_lessons, $sort_order, $status);
+                } else {
+                    $stmt = $conn->prepare("INSERT INTO islamiyya_books (title, author, description, media_type, total_lessons, sort_order, status) VALUES (?,?,?,?,?,?,?)");
+                    $stmt->bind_param("ssssiis", $title, $author, $description, $media_type, $total_lessons, $sort_order, $status);
+                }
             }
             if ($stmt->execute()) {
                 $book_id = $id > 0 ? $id : (int)$conn->insert_id;
@@ -55,10 +68,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($act === 'toggle') {
-        if ($id > 0 && islamiyya_book($conn, $id)) {
-            $book = islamiyya_book($conn, $id);
+        $book = $id > 0 ? islamiyya_book($conn, $id) : null;
+        if ($book) {
             $new  = $book['status'] === 'live' ? 'coming_soon' : 'live';
-            $conn->prepare("UPDATE islamiyya_books SET status=? WHERE id=?")->execute([$new, $id]);
+            $stmt = $conn->prepare("UPDATE islamiyya_books SET status=? WHERE id=?");
+            $stmt->bind_param("si", $new, $id);
+            $stmt->execute();
             $msg = $new === 'live' ? 'Book published (students can now see it).' : 'Book unpublished.';
         } else {
             $err = 'Book not found.';
@@ -66,7 +81,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($act === 'delete') {
-        if ($id > 0 && islamiyya_book($conn, $id)) {
+        $book_exists = $id > 0 ? islamiyya_book($conn, $id) : null;
+        if ($book_exists) {
             $stmt = $conn->prepare("SELECT media_file FROM islamiyya_lessons WHERE book_id=?");
             $stmt->bind_param("i", $id);
             $stmt->execute();
@@ -74,14 +90,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($medias as $m) {
                 if (!empty($m['media_file'])) @unlink(__DIR__ . '/../uploads/islamiyya_media/' . basename($m['media_file']));
             }
-            $conn->prepare("DELETE FROM islamiyya_questions WHERE lesson_id IN (SELECT id FROM islamiyya_lessons WHERE book_id=?)")->execute([$id]);
-            $conn->prepare("DELETE FROM islamiyya_lessons WHERE book_id=?" )->execute([$id]);
-            $conn->prepare("DELETE FROM islamiyya_lesson_progress WHERE book_id=?")->execute([$id]);
-            $conn->prepare("DELETE FROM islamiyya_book_progress WHERE book_id=?")->execute([$id]);
+            $stmt = $conn->prepare("DELETE FROM islamiyya_questions WHERE lesson_id IN (SELECT id FROM islamiyya_lessons WHERE book_id=?)");
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $stmt = $conn->prepare("DELETE FROM islamiyya_lessons WHERE book_id=?");
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $stmt = $conn->prepare("DELETE FROM islamiyya_lesson_progress WHERE book_id=?");
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $stmt = $conn->prepare("DELETE FROM islamiyya_book_progress WHERE book_id=?");
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            if (db_table_exists($conn, 'islamiyya_interests')) {
+                $stmt = $conn->prepare("DELETE FROM islamiyya_interests WHERE book_id=?");
+                $stmt->bind_param("i", $id);
+                $stmt->execute();
+            }
             $b = islamiyya_book($conn, $id);
             if (!empty($b['cover_image'])) @unlink(__DIR__ . '/../uploads/islamiyya_covers/' . basename($b['cover_image']));
             if (!empty($b['pdf_file']))     @unlink(__DIR__ . '/../uploads/islamiyya_pdfs/'   . basename($b['pdf_file']));
-            $conn->prepare("DELETE FROM islamiyya_books WHERE id=?")->execute([$id]);
+            $stmt = $conn->prepare("DELETE FROM islamiyya_books WHERE id=?");
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
             $msg = 'Book and all its content deleted.';
         } else {
             $err = 'Book not found.';
@@ -175,7 +206,7 @@ foreach ($all_books as $b) {
 
 <div class="page-hero animate-rise">
     <h1>Digital Islamiyya — Book Manager</h1>
-    <p>Add the classical books students study, upload their lessons and quizzes, then publish. A book goes LIVE only when every lesson is uploaded and every lesson has a quiz question.</p>
+    <p>Add the classical books students study, upload their lessons and quizzes, then publish. A book goes LIVE only when its expected lesson count is set (0 = TBD until uploads clarify the scope), every expected lesson is uploaded AND every lesson has a quiz question. Until then students see a "Coming Soon" block where they can save a slot.</p>
 </div>
 
 <?php if ($msg !== ''): ?>
@@ -255,8 +286,9 @@ foreach ($all_books as $b) {
                 </select>
             </div>
             <div class="form-group">
-                <label class="form-label">Total lessons (expected)</label>
-                <input class="form-input" type="number" name="total_lessons" min="1" value="<?= $e_total ?>" required>
+                <label class="form-label">Total lessons expected <span class="text-muted">(0 = TBD)</span></label>
+                <input class="form-input" type="number" name="total_lessons" min="0" value="<?= $e_total ?>">
+                <p class="small text-muted" style="margin:4px 0 0;">Leave at 0 if you can't tell yet — set the real count once uploads clarify the scope. A book with TBD cannot go live.</p>
             </div>
             <div class="form-group">
                 <label class="form-label">Sort order</label>
@@ -302,9 +334,11 @@ foreach ($all_books as $b) {
     $readiness = $lessons_meta[$book_id] ?? islamiyya_book_readiness($conn, $book);
     $uploaded  = (int)$readiness['uploaded'];
     $expected  = (int)$readiness['expected'];
+    $tbd       = $expected <= 0;
     $missing_q = $readiness['missing_questions'] ?? [];
-    $pct       = $expected > 0 ? min(100, (int)round($uploaded / $expected * 100)) : 0;
+    $pct       = (!$tbd && $expected > 0) ? min(100, (int)round($uploaded / $expected * 100)) : 0;
     $has_pdf   = !empty($book['pdf_file']);
+    $slot_count = function_exists('islamiyya_interest_count') ? islamiyya_interest_count($conn, $book_id) : 0;
 ?>
 <div class="card animate-rise" style="margin-bottom:14px;">
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;">
@@ -324,13 +358,20 @@ foreach ($all_books as $b) {
             <?php if (!empty($book['description'])): ?><p class="small" style="margin:4px 0 0;"><?= htmlspecialchars($book['description'], ENT_QUOTES) ?></p><?php endif; ?>
 
             <div class="progress" style="margin:10px 0 8px;max-width:340px;">
-                <div class="progress-fill" style="width:<?= $pct ?>%;"></div>
-                <div class="progress-text"><?= $pct ?>% ready</div>
+                <div class="progress-fill" style="width:<?= $tbd ? 0 : $pct ?>%;"></div>
+                <div class="progress-text"><?= $tbd ? 'TBD' : $pct . '% ready' ?></div>
             </div>
             <p class="small text-muted" style="margin:0 0 10px;">
                 <?= ui_icon('video', 13) ?> <?= $book['media_type'] === 'video' ? 'Video' : 'Audio' ?> ·
-                <?= $uploaded ?>/<?= $expected ?> lessons uploaded ·
-                <?php if ($uploaded < $expected): ?>
+                <?php if ($tbd): ?>
+                    <span class="badge badge-gold"><?= ui_icon('clock', 12) ?> Total TBD</span>
+                    <?= $uploaded ?> lesson(s) uploaded so far — set the expected count once known ·
+                <?php else: ?>
+                    <?= $uploaded ?>/<?= $expected ?> lessons uploaded ·
+                <?php endif; ?>
+                <?php if ($tbd): ?>
+                    set the expected lesson count to enable publishing
+                <?php elseif ($uploaded < $expected): ?>
                     <?= ($expected - $uploaded) ?> lesson(s) still to add
                 <?php elseif (!empty($missing_q)): ?>
                     quiz question missing for lesson<?= count($missing_q) > 1 ? 's' : '' ?> #<?= implode(', ', array_map('intval', $missing_q)) ?>
@@ -338,6 +379,7 @@ foreach ($all_books as $b) {
                     ready to publish
                 <?php endif; ?>
                 <?= $has_pdf ? ' · ' . ui_icon('file-text', 12) . ' PDF ready' : '' ?>
+                <?php if ($slot_count > 0): ?><?= ' · ' . ui_icon('bell', 12) . ' ' . $slot_count . ' slot' . ($slot_count > 1 ? 's' : '') . ' saved' ?><?php endif; ?>
             </p>
 
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -347,13 +389,13 @@ foreach ($all_books as $b) {
                     <?= csrf_field() ?>
                     <input type="hidden" name="act" value="toggle">
                     <input type="hidden" name="id" value="<?= $book_id ?>">
-                    <button class="btn btn-sm <?= $live ? 'btn-danger-ghost' : 'btn-gold' ?>" type="submit"><?= ui_icon($live ? 'close' : 'send', 14) ?> <?= $live ? 'Unpublish' : 'Publish' ?></button>
+                    <button class="btn btn-sm <?= $live ? 'btn-ghost' : 'btn-gold' ?>" type="submit"><?= ui_icon($live ? 'close' : 'send', 14) ?> <?= $live ? 'Unpublish' : 'Publish' ?></button>
                 </form>
                 <form method="POST" onsubmit="return confirm('Delete this book and ALL its lessons, quizzes and progress? This cannot be undone.');">
                     <?= csrf_field() ?>
                     <input type="hidden" name="act" value="delete">
                     <input type="hidden" name="id" value="<?= $book_id ?>">
-                    <button class="btn btn-sm btn-danger-ghost" type="submit"><?= ui_icon('trash', 14) ?> Delete</button>
+                    <button class="btn btn-sm btn-danger" type="submit"><?= ui_icon('trash', 14) ?> Delete</button>
                 </form>
             </div>
         </div>

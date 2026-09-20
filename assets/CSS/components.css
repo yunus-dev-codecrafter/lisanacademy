@@ -368,3 +368,32 @@ audio::-webkit-media-controls-panel{background:var(--emerald-50)}
   justify-content:center;
   padding:20px;
 }
+
+/* ---------------- Digital Islamiyya catalog ---------------- */
+.badge-soft{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35)}
+.page-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;margin-bottom:16px}
+.page-head{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;justify-content:space-between;margin-bottom:12px}
+.page-head h2{margin:0}
+.page-head p{margin:4px 0 0}
+.nav-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.nav-tab{padding:8px 14px;border-radius:var(--radius-pill);border:1px solid var(--border);background:var(--surface-muted);color:var(--text);text-decoration:none;font-size:.85rem;font-weight:600}
+.nav-tab.active{background:linear-gradient(135deg,var(--gold-deep),var(--gold));color:#fff;border-color:transparent;box-shadow:var(--shadow)}
+.islam-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column}
+.islam-card.is-live{border-top:4px solid var(--emerald-500)}
+.islam-card.is-coming{border-top:4px solid var(--gold)}
+.islam-cover{position:relative;padding:18px;text-align:center;background:linear-gradient(160deg,var(--emerald-50),transparent)}
+.islam-flag{position:absolute;top:10px;left:10px;display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700;padding:4px 10px;border-radius:var(--radius-pill)}
+.flag-live{background:var(--emerald-100);color:var(--emerald-800)}
+.flag-coming{background:linear-gradient(135deg,#f1dfae,#e7c87c);color:#7a5a15}
+.cover-art{margin:8px auto 10px;width:120px;height:150px;border-radius:10px;overflow:hidden;box-shadow:var(--shadow)}
+.cover-art img{width:100%;height:100%;object-fit:cover;display:block}
+.cover-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(135deg,var(--emerald-700),var(--emerald-500))}
+.cover-title{display:block;font-size:1.15rem;line-height:1.5}
+.cover-author{display:block;margin-top:2px}
+.islam-card-body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:10px;flex:1}
+.islam-card-body .btn.full{width:100%;justify-content:center}
+.progress-row{display:flex;align-items:center;gap:10px}
+.progress-row .progress{flex:1}
+.progress-bar{height:100%;border-radius:var(--radius-pill);background:linear-gradient(90deg,var(--emerald-700),var(--emerald-500))}
+.center{text-align:center}
+.pad{padding:22px}
