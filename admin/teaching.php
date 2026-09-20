@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/security/helpers.php';
 require_once __DIR__ . '/../auth/auth_check.php';
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../config/audio_fix.php';
 
 require_role('admin');
 
@@ -182,7 +183,7 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
                 &nbsp;Verses <?= (int)$r['from_verse'] ?>–<?= (int)$r['to_verse'] ?>
             </p>
 
-            <audio controls src="../uploads/student_audio/<?= htmlspecialchars($r['audio_file']) ?>"></audio>
+            <?= media_player_html($r['audio_file'], '../uploads/student_audio/') ?>
 
             <form method="POST" action="review_recitation.php" enctype="multipart/form-data" style="margin-top:6px;">
                 <input type="hidden" name="rec_id" value="<?= (int)$r['rec_id'] ?>">
@@ -381,7 +382,7 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
         </div>
 
         <?php if ($hs['session_type'] === 'audio' && !empty($hs['audio_file'])): ?>
-            <audio controls preload="none" src="../uploads/student_audio/<?= htmlspecialchars($hs['audio_file']) ?>"></audio>
+            <?= media_player_html($hs['audio_file'], '../uploads/student_audio/') ?>
         <?php elseif ($hs['session_type'] === 'live'): ?>
             <p class="small text-muted" style="margin:0;"><?= ui_icon('video', 14) ?> Live recitation session — the student recited off-head during the scheduled call.</p>
         <?php endif; ?>
@@ -478,29 +479,32 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
 
 <?php ui_page_end(); ?>
 
+<script src="/assets/js/recorder.js"></script>
 <script>
 let mediaRecorder=null;
 const recordedBlobs={};
 const recordedStreams={};
+const recordedMimes={};
+const recordedExts={};
 
-const MIME = (window.MediaRecorder && (
-    MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' :
-    MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
-)) || '';
-const REC_EXT = MIME === 'audio/mp4' ? 'm4a' : 'webm';
-const REC_OPTS = MIME
-    ? { mimeType: MIME, audioBitsPerSecond: 48000, videoBitsPerSecond: 0 }
-    : { audioBitsPerSecond: 48000, videoBitsPerSecond: 0 };
+const __picked = (window.Recorder ? Recorder.pick() : { mime: '', ext: 'webm' });
+const MIME = __picked.mime;
+const REC_EXT = __picked.ext;
 const REC_MAX_MS = 5 * 60 * 1000;
 let recMaxTimer = null;
 
 function startRecording(id){
+if (!window.Recorder || !Recorder.supported()) { alert('Recording is not supported here.'); return; }
 navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
 recordedBlobs[id]=[];
 recordedStreams[id]=stream;
-mediaRecorder=new MediaRecorder(stream, REC_OPTS);
-mediaRecorder.ondataavailable=e=>e.data.size&&recordedBlobs[id].push(e.data);
-mediaRecorder.start(1000);
+recordedMimes[id]=MIME; recordedExts[id]=REC_EXT;
+try { mediaRecorder=Recorder.create(stream, MIME); }
+catch(e){ alert('Could not start recording.'); stream.getTracks().forEach(t=>t.stop()); return; }
+try { if (mediaRecorder.mimeType) recordedMimes[id]=mediaRecorder.mimeType; } catch(e){}
+mediaRecorder.ondataavailable=e=>{ if(e.data && e.data.size) recordedBlobs[id].push(e.data); };
+mediaRecorder.onerror=()=>{ clearTimeout(recMaxTimer); alert('Recording failed. Please try again.'); };
+try { mediaRecorder.start(1000); } catch(e){ alert('Could not start recording.'); return; }
 recMaxTimer=setTimeout(()=>{
 if(mediaRecorder && mediaRecorder.state==='recording'){
 mediaRecorder.stop();
@@ -513,7 +517,8 @@ alert('Recording stopped automatically after 5 minutes.');
 function stopRecording(id){
 mediaRecorder.onstop=()=>{
 clearTimeout(recMaxTimer);
-const blob=new Blob(recordedBlobs[id],{type: MIME || 'audio/webm'});
+const blob=Recorder.makeBlob(recordedBlobs[id], mediaRecorder, recordedMimes[id]);
+if (!blob || blob.size === 0) { alert('Recording is empty. Please record again.'); return; }
 document.getElementById('audio_'+id).src=URL.createObjectURL(blob);
 document.getElementById('send_'+id).style.display='inline-flex';
 recordedBlobs[id]=blob;
@@ -524,7 +529,7 @@ mediaRecorder.stop();
 
 function sendAdminAudio(studentId, lessonId){
 const fd=new FormData();
-fd.append('audio',recordedBlobs[lessonId],'admin_audio_'+lessonId+'.'+REC_EXT);
+fd.append('audio',recordedBlobs[lessonId],'admin_audio_'+lessonId+'.'+(recordedExts[lessonId] || REC_EXT));
 fd.append('student_id',studentId);
 fd.append('plan_id',lessonId);
 fetch('submit_admin_audio.php',{method:'POST',body:fd}).then(()=>location.reload());

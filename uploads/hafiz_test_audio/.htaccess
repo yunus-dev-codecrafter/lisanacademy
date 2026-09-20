@@ -4,7 +4,8 @@ AddType audio/mpeg .mp3
 AddType audio/mp4 .m4a
 AddType audio/aac .aac
 AddType video/quicktime .mov
-AddType audio/mp4 .mp4
+AddType video/mp4 .mp4 .m4v
+AddType video/3gpp .3gp .3gpp
 AddType audio/ogg .opus
 
 # Never let a script run out of an upload folder.

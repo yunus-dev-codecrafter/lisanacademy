@@ -3,6 +3,7 @@ require '../config/security/helpers.php';
 require_role('admin');
 include '../auth/auth_check.php';
 include '../config/db.php';
+require_once __DIR__ . '/../config/audio_fix.php';
 
 // Fetch all pending recitations with student info and surah name
 $sql = "
@@ -51,7 +52,7 @@ $recitations = $conn->query($sql);
         &nbsp;· Submitted <?= date('d M Y, H:i', strtotime($r['submitted_at'])) ?>
     </p>
 
-    <audio controls src="../uploads/student_audio/<?= htmlspecialchars($r['audio_file']) ?>"></audio>
+    <?= media_player_html($r['audio_file'], '../uploads/student_audio/') ?>
 
     <form method="POST" action="review_recitation.php" style="margin-top:6px;">
         <input type="hidden" name="rec_id" value="<?= $r['id'] ?>">

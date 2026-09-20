@@ -40,87 +40,87 @@ if (student_exam_locked($conn, (int)$_SESSION['user_id'])) {
 
         <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;">
             <button id="startBtn" class="btn"><?= ui_icon('mic', 16) ?> Start Recording</button>
-            <button id="stopBtn" class="btn btn-danger" disabled><?= ui_icon('stop', 16) ?> Stop &amp; Submit</button>
+            <button id="stopBtn" class="btn btn-danger" disabled><?= ui_icon('stop', 16) ?> Stop</button>
         </div>
         <audio id="preview" controls class="hidden" style="margin-top:16px;"></audio>
         <button id="sendBtn" class="btn btn-gold btn-block" style="margin-top:12px;" disabled><?= ui_icon('send', 16) ?> Send Recitation</button>
+        <p id="reciteMsg" class="small text-muted hidden" style="margin-top:10px;">Uploading… please wait.</p>
 
-        <?php if ($_SERVER['REQUEST_METHOD'] === 'POST'): ?>
-        <div class="alert alert-danger"><?= htmlspecialchars($submit_error ?? '') ?></div>
-        <?php endif; ?>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
+            <p class="small text-muted" style="margin:0 0 8px;">iPhone camera recording? Upload the video file instead:</p>
+            <input type="file" id="uploadFallback" accept="audio/*,video/*,.m4a,.mp3,.wav,.ogg,.webm,.aac,.mp4,.m4v,.mov,.3gp" style="width:100%;">
+            <button id="uploadBtn" class="btn btn-ghost btn-block" style="margin-top:8px;" disabled><?= ui_icon('upload', 16) ?> Upload Selected File</button>
+        </div>
     </div>
 </div>
 
-<?php
-/* Handle audio submission (form posts to same page) */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['audio'])) {
-    $student_id = (int)$_SESSION['user_id'];
-    $learning_plan_id = (int)($_POST['learning_plan_id'] ?? 0);
-    if ($learning_plan_id <= 0) {
-        $submit_error = 'Missing learning plan.';
-    } elseif ($_FILES['audio']['error'] !== UPLOAD_ERR_OK) {
-        $submit_error = 'Audio upload failed.';
-    } else {
-        /* The lesson must actually belong to this student — prevents orphaned rows. */
-        $stmt = $conn->prepare("SELECT id FROM lessons WHERE id = ? AND student_id = ? LIMIT 1");
-        $stmt->bind_param("ii", $learning_plan_id, $student_id);
-        $stmt->execute();
-        if ($stmt->get_result()->num_rows === 0) {
-            $submit_error = 'Invalid lesson.';
-        } else {
-            $upload_dir = __DIR__ . '/../uploads/student_audio/';
-            if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
-            $ext = strtolower(pathinfo($_FILES['audio']['name'], PATHINFO_EXTENSION));
-            $filename = 'student_' . time() . '_' . rand(1000,9999) . '.' . $ext;
-            if (!move_uploaded_file($_FILES['audio']['tmp_name'], $upload_dir . $filename)) {
-                $submit_error = 'Upload failed.';
-            } else {
-                $stmt = $conn->prepare("INSERT INTO student_recitation (student_id, learning_plan_id, audio_file, submitted_at) VALUES (?, ?, ?, NOW())");
-                $stmt->bind_param("iis", $student_id, $learning_plan_id, $filename);
-                $stmt->execute();
-                header("Location: recitation_sent.php");
-                exit;
-            }
-        }
-    }
-}
-?>
-
+<script src="/assets/js/recorder.js"></script>
 <script>
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const sendBtn = document.getElementById('sendBtn');
 const preview = document.getElementById('preview');
+const reciteMsg = document.getElementById('reciteMsg');
+const uploadFallback = document.getElementById('uploadFallback');
+const uploadBtn = document.getElementById('uploadBtn');
 let recorder = null;
 let chunks = [];
 let audioBlob = null;
+let recMime = '';
+let recExt = 'm4a';
 let recMaxTimer = null;
+let recStream = null;
 
-const MIME = (window.MediaRecorder && (
-    MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' :
-    MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
-)) || '';
-const REC_EXT = MIME === 'audio/mp4' ? 'm4a' : 'webm';
-const REC_OPTS = MIME
-    ? { mimeType: MIME, audioBitsPerSecond: 48000, videoBitsPerSecond: 0 }
-    : { audioBitsPerSecond: 48000, videoBitsPerSecond: 0 };
 const REC_MAX_MS = 5 * 60 * 1000;
+const LESSON_ID = <?= (int)($_GET['lesson_id'] ?? 0) ?>;
+
+function showMsg(t) { if (reciteMsg) { reciteMsg.textContent = t; reciteMsg.classList.remove('hidden'); } }
+function hideMsg() { if (reciteMsg) reciteMsg.classList.add('hidden'); }
+
+function submitBlob(blob, filename) {
+    if (!blob || blob.size === 0) { alert('Recording is empty. Please record again.'); return; }
+    if (!LESSON_ID) { alert('Missing lesson. Please open this page from My Lessons.'); return; }
+    const fd = new FormData();
+    fd.append('audio', blob, filename);
+    fd.append('learning_plan_id', String(LESSON_ID));
+    showMsg('Uploading… please wait.');
+    sendBtn.disabled = true;
+    if (uploadBtn) uploadBtn.disabled = true;
+    fetch('submit_recitation.php', { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+        .then(r => r.text())
+        .then(res => {
+            if (res.trim() === 'OK') { location.href = 'recitation_sent.php'; }
+            else { hideMsg(); alert(res); sendBtn.disabled = false; if (uploadBtn) uploadBtn.disabled = false; }
+        })
+        .catch(err => { hideMsg(); alert('Error submitting recitation: ' + err); sendBtn.disabled = false; if (uploadBtn) uploadBtn.disabled = false; });
+}
 
 startBtn.addEventListener('click', () => {
     chunks = [];
     audioBlob = null;
+    if (!window.Recorder || !Recorder.supported()) { alert('Recording is not supported in this browser. Please use the file upload below.'); return; }
+    const picked = Recorder.pick();
+    recMime = picked.mime; recExt = picked.ext;
     navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-        recorder = new MediaRecorder(stream, REC_OPTS);
-        recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+        recStream = stream;
+        try { recorder = Recorder.create(stream, recMime); }
+        catch (e) { alert('Recording is not supported on this device. Please use the file upload below.'); stream.getTracks().forEach(t => t.stop()); return; }
+        try { recMime = recorder.mimeType || recMime; } catch (e) {}
+        recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+        recorder.onerror = () => { clearTimeout(recMaxTimer); alert('Recording failed. Please try again or upload a file below.'); startBtn.disabled = false; stopBtn.disabled = true; };
         recorder.onstop = () => {
             clearTimeout(recMaxTimer);
-            audioBlob = new Blob(chunks, { type: MIME || 'audio/webm' });
+            audioBlob = Recorder.makeBlob(chunks, recorder, recMime);
+            if (!audioBlob || audioBlob.size === 0) { alert('Recording is empty. Please record again.'); startBtn.disabled = false; return; }
             preview.src = URL.createObjectURL(audioBlob);
             preview.classList.remove('hidden');
+            try { preview.load(); } catch (e) {}
             sendBtn.disabled = false;
-            stream.getTracks().forEach(t => t.stop());
+            if (recStream) recStream.getTracks().forEach(t => t.stop());
+            recStream = null;
         };
-        recorder.start(1000);
+        try { recorder.start(1000); }
+        catch (e) { alert('Could not start recording. Please use the file upload below.'); stream.getTracks().forEach(t => t.stop()); return; }
         recMaxTimer = setTimeout(() => {
             if (recorder && recorder.state === 'recording') {
                 recorder.stop();
@@ -129,7 +129,7 @@ startBtn.addEventListener('click', () => {
         }, REC_MAX_MS);
         startBtn.disabled = true;
         stopBtn.disabled = false;
-    }).catch(() => alert('Microphone access denied'));
+    }).catch(() => alert('Microphone access denied. Please allow access or upload a file below.'));
 });
 
 stopBtn.addEventListener('click', () => {
@@ -141,12 +141,15 @@ stopBtn.addEventListener('click', () => {
 
 sendBtn.addEventListener('click', () => {
     if (!audioBlob) return alert('No recording found');
-    const fd = new FormData();
-    fd.append('audio', audioBlob, 'recitation.' + REC_EXT);
-    fd.append('learning_plan_id', '<?= (int)($_GET['lesson_id'] ?? 0) ?>');
-    fetch('recite.php', { method: 'POST', body: fd })
-        .then(r => (location.href = 'recitation_sent.php'))
-        .catch(err => alert('Error submitting recitation: ' + err));
+    submitBlob(audioBlob, 'recitation.' + recExt);
+});
+
+if (uploadFallback) uploadFallback.addEventListener('change', () => {
+    if (uploadBtn) uploadBtn.disabled = !(uploadFallback.files && uploadFallback.files.length);
+});
+if (uploadBtn) uploadBtn.addEventListener('click', () => {
+    if (!uploadFallback.files || !uploadFallback.files.length) return alert('Choose a file first.');
+    submitBlob(uploadFallback.files[0], uploadFallback.files[0].name);
 });
 </script>
 <script src="/assets/js/audio_player.js"></script>

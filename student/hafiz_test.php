@@ -140,8 +140,8 @@ $seconds_left = $deadline_ts > 0 ? max(0, $deadline_ts - $now_ts) : 0;
             <?php endif; ?>
 
             <div id="filewrap_<?= $i ?>" class="<?= $device_type === 'iphone' ? '' : 'hidden' ?>" style="margin-top:10px;">
-                <label class="form-label" for="file_<?= $i ?>">Audio file for Question <?= $i + 1 ?></label>
-                <input class="file-input" type="file" name="audio[]" id="file_<?= $i ?>" accept="audio/*">
+                <label class="form-label" for="file_<?= $i ?>">Audio or video file for Question <?= $i + 1 ?></label>
+                <input class="file-input" type="file" name="audio[]" id="file_<?= $i ?>" accept="audio/*,video/*,.m4a,.mp3,.wav,.ogg,.webm,.aac,.mp4,.m4v,.mov,.3gp">
             </div>
         </div>
         <?php endforeach; ?>
@@ -202,22 +202,20 @@ $seconds_left = $deadline_ts > 0 ? max(0, $deadline_ts - $now_ts) : 0;
 
 <?php ui_page_end(); ?>
 
+<script src="/assets/js/recorder.js"></script>
 <script>
 const qcount = <?= in_array($mode, ['in_progress'], true) ? count($questions ?? []) : 0 ?>;
 const recorders = {};
 const chunks = {};
 const blobs = {};
 const recMaxTimers = {};
+const recMimes = {};
+const recExts = {};
 
 /* Pick a container the browser can actually record into (Safari/iOS only does audio/mp4) */
-const MIME = (window.MediaRecorder && (
-    MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' :
-    MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
-)) || '';
-const REC_EXT = MIME === 'audio/mp4' ? 'm4a' : 'webm';
-const REC_OPTS = MIME
-    ? { mimeType: MIME, audioBitsPerSecond: 48000, videoBitsPerSecond: 0 }
-    : { audioBitsPerSecond: 48000, videoBitsPerSecond: 0 };
+const __picked = (window.Recorder ? Recorder.pick() : { mime: '', ext: 'webm' });
+const MIME = __picked.mime;
+const REC_EXT = __picked.ext;
 const REC_MAX_MS = 5 * 60 * 1000;
 
 /* Toggle between in-browser recorder and file upload, per question */
@@ -273,13 +271,27 @@ if (qcount > 0 && (!window.MediaRecorder || MIME === '')) {
 
 function startRec(i) {
     chunks[i] = [];
+    if (!window.Recorder || !Recorder.supported()) {
+        alert('Recording is not supported here. Please upload an audio/video file instead.');
+        const rw = document.getElementById('recwrap_' + i);
+        const fw = document.getElementById('filewrap_' + i);
+        if (rw) rw.classList.add('hidden');
+        if (fw) fw.classList.remove('hidden');
+        return;
+    }
+    recMimes[i] = MIME; recExts[i] = REC_EXT;
     navigator.mediaDevices.getUserMedia({ audio: true })
         .then(s => {
-            const rec = new MediaRecorder(s, REC_OPTS);
-            rec.ondataavailable = e => { if (e.data.size) chunks[i].push(e.data); };
+            let rec;
+            try { rec = Recorder.create(s, recMimes[i]); }
+            catch (e) { alert('Could not start recording. You can upload a file instead.'); s.getTracks().forEach(t => t.stop()); return; }
+            try { if (rec.mimeType) recMimes[i] = rec.mimeType; } catch (e) {}
+            rec.ondataavailable = e => { if (e.data && e.data.size) chunks[i].push(e.data); };
+            rec.onerror = () => { clearTimeout(recMaxTimers[i]); alert('Recording failed. Please try again or upload a file.'); };
             rec.onstop = () => {
                 clearTimeout(recMaxTimers[i]);
-                blobs[i] = new Blob(chunks[i], { type: MIME || 'audio/webm' });
+                blobs[i] = Recorder.makeBlob(chunks[i], rec, recMimes[i]);
+                if (!blobs[i] || blobs[i].size === 0) { alert('Recording is empty. Please record again.'); return; }
                 const p = document.getElementById('preview_' + i);
                 p.src = URL.createObjectURL(blobs[i]);
                 p.classList.remove('hidden');
@@ -287,7 +299,7 @@ function startRec(i) {
                 s.getTracks().forEach(t => t.stop());
             };
             recorders[i] = rec;
-            rec.start(1000);
+            try { rec.start(1000); } catch (e) { alert('Could not start recording. Please upload a file instead.'); s.getTracks().forEach(t => t.stop()); return; }
             recMaxTimers[i] = setTimeout(() => {
                 if (recorders[i] && recorders[i].state === 'recording') {
                     recorders[i].stop();
@@ -337,7 +349,8 @@ function submitTest() {
         if (hasFile && !hasRec) {
             fd.append('audio[]', inp.files[0]);
         } else {
-            fd.append('audio[]', blobs[i], 'question_' + (i + 1) + '.' + REC_EXT);
+            if (!blobs[i] || blobs[i].size === 0) { alert('Recording for question ' + (i + 1) + ' is empty. Please record again.'); return; }
+            fd.append('audio[]', blobs[i], 'question_' + (i + 1) + '.' + (recExts[i] || REC_EXT));
         }
     }
     fd.append('csrf_token', document.querySelector('[name=csrf_token]').value);
@@ -390,7 +403,13 @@ function render_test_questions_readonly($questions, $test) {
         if ($ar !== '') $html .= ' <span class="arabic">' . htmlspecialchars($ar) . '</span>';
         $html .= ' from verse ' . (int)$q['from_verse'] . ' to ' . (int)$q['to_verse'];
         if (!empty($q['audio_file'])) {
-            $html .= '<br><audio controls preload="none" style="width:100%;margin-top:6px;" src="../uploads/hafiz_test_audio/' . htmlspecialchars($q['audio_file']) . '"></audio>';
+            $__ext = strtolower(pathinfo($q['audio_file'], PATHINFO_EXTENSION));
+            $__url = '../uploads/hafiz_test_audio/' . rawurlencode($q['audio_file']);
+            if (in_array($__ext, ['mov', 'mp4', 'm4v', '3gp', '3gpp'], true)) {
+                $html .= '<br><video controls preload="none" playsinline style="width:100%;margin-top:6px;border-radius:12px;background:#000;" src="' . htmlspecialchars($__url) . '"></video>';
+            } else {
+                $html .= '<br><audio controls preload="none" style="width:100%;margin-top:6px;" src="../uploads/hafiz_test_audio/' . htmlspecialchars($q['audio_file']) . '"></audio>';
+            }
         }
         $html .= '</div>';
     }

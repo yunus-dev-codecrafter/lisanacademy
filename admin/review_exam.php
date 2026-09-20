@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/security/helpers.php';
 require_once __DIR__ . '/../auth/auth_check.php';
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../config/audio_fix.php';
 
 require_role('admin');
 
@@ -145,7 +146,7 @@ try {
             <div class="card-title">
                 <h3 style="margin:0;">Question: Recite Surah <?= htmlspecialchars($a['surah_name']) ?><?php $ar = arabic_text($a['surah_name_ar'] ?? ''); if ($ar !== ''): ?> <span class="arabic"><?= htmlspecialchars($ar) ?></span><?php endif; ?> from verse <?= (int)$a['from_verse'] ?> to <?= (int)$a['to_verse'] ?></h3>
                 <?php if ($a['audio_file']): ?>
-                    <audio controls src="../uploads/exam_audio/<?= htmlspecialchars($a['audio_file']) ?>"></audio>
+                    <?= media_player_html($a['audio_file'], '../uploads/exam_audio/') ?>
                 <?php endif; ?>
             </div>
             <p><strong>Rating:</strong> <?= htmlspecialchars($a['rating'] ?? '—') ?></p>
@@ -180,7 +181,7 @@ try {
                 </div>
 
                 <?php if ($a['audio_file']): ?>
-                    <audio controls src="../uploads/exam_audio/<?= htmlspecialchars($a['audio_file']) ?>"></audio>
+                    <?= media_player_html($a['audio_file'], '../uploads/exam_audio/') ?>
                 <?php else: ?>
                     <div class="alert alert-warning"><?= ui_icon('alert', 16) ?> No audio was uploaded for this question.</div>
                 <?php endif; ?>

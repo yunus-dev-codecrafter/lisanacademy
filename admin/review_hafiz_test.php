@@ -139,7 +139,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             from verse <?= (int)$a['from_verse'] ?> to <?= (int)$a['to_verse'] ?>
             <?php if (!empty($a['audio_file'])): ?>
                 <div style="margin-top:8px;">
-                    <audio controls preload="none" style="width:100%;" src="../uploads/hafiz_test_audio/<?= htmlspecialchars($a['audio_file']) ?>"></audio>
+                    <?= media_player_html($a['audio_file'], '../uploads/hafiz_test_audio/') ?>
                 </div>
             <?php else: ?>
                 <div style="margin-top:6px;"><span class="badge badge-grey">No recording</span></div>

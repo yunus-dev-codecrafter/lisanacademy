@@ -430,12 +430,12 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
             <button class="btn btn-gold btn-block" id="sendAudioBtn" style="display:none;margin-top:10px;" onclick="sendAudio()"><?= ui_icon('send', 16) ?> Submit Recitation</button>
         </div>
 
-        <!-- Upload Local Recording -->
+        <!-- Upload Local Recording (audio or video) -->
         <div id="uploadPanel" style="display:none;">
-            <p class="small" style="margin:0 0 12px;">Record yourself reciting Page <?= $required_page ?> on your device, then choose the audio file to upload it.</p>
+            <p class="small" style="margin:0 0 12px;">Record yourself reciting Page <?= $required_page ?> on your device (Voice Memo or camera video), then choose the file to upload it.</p>
             <div class="form-group">
-                <label class="form-label">Audio File</label>
-                <input class="form-input" type="file" id="uploadFile" accept="audio/*,.mp3,.m4a,.wav,.ogg,.webm,.aac" required>
+                <label class="form-label">Audio / Video File</label>
+                <input class="form-input" type="file" id="uploadFile" accept="audio/*,video/*,.mp3,.m4a,.wav,.ogg,.webm,.aac,.mp4,.m4v,.mov,.3gp" required>
             </div>
             <audio id="uploadPreview" controls style="display:none;width:100%;margin-top:8px;"></audio>
             <div id="uploadProgress2" style="display:none;" class="small text-muted">Uploading...</div>
@@ -535,6 +535,7 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
 
 <?php ui_page_end(); ?>
 
+<script src="/assets/js/recorder.js"></script>
 <script>
 let currentMode = '';
 let mediaRecorder = null;
@@ -571,26 +572,28 @@ document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeReciteModal();
 });
 
-/* Audio Recording */
-const REC_MIME = (window.MediaRecorder && (
-    MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' :
-    MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
-)) || '';
-const REC_EXT = REC_MIME === 'audio/mp4' ? 'm4a' : 'webm';
-const REC_OPTS = REC_MIME
-    ? { mimeType: REC_MIME, audioBitsPerSecond: 48000, videoBitsPerSecond: 0 }
-    : { audioBitsPerSecond: 48000, videoBitsPerSecond: 0 };
+/* Audio Recording (Safari-safe via shared helper) */
+const __picked = (window.Recorder ? Recorder.pick() : { mime: '', ext: 'webm' });
+const REC_MIME = __picked.mime;
+const REC_EXT = __picked.ext;
 const REC_MAX_MS = 5 * 60 * 1000;
 let recMaxTimer = null;
 
 function startRecording() {
+    if (!window.Recorder || !Recorder.supported()) { alert('Recording is not supported in this browser. Please use the Upload tab instead.'); return; }
     navigator.mediaDevices.getUserMedia({audio: true}).then(function(stream) {
         audioBlobs = [];
-        mediaRecorder = new MediaRecorder(stream, REC_OPTS);
-        mediaRecorder.ondataavailable = function(e) { if (e.data.size > 0) audioBlobs.push(e.data); };
+        try { mediaRecorder = Recorder.create(stream, REC_MIME); }
+        catch (e) { alert('Could not start recording. Please use the Upload tab instead.'); stream.getTracks().forEach(function(t) { t.stop(); }); return; }
+        var mime = REC_MIME;
+        try { if (mediaRecorder.mimeType) mime = mediaRecorder.mimeType; } catch (e) {}
+        mediaRecorder._mime = mime;
+        mediaRecorder.ondataavailable = function(e) { if (e.data && e.data.size > 0) audioBlobs.push(e.data); };
+        mediaRecorder.onerror = function() { clearTimeout(recMaxTimer); alert('Recording failed. Please try again or use the Upload tab.'); };
         mediaRecorder.onstop = function() {
             clearTimeout(recMaxTimer);
-            var blob = new Blob(audioBlobs, {type: REC_MIME || 'audio/webm'});
+            var blob = Recorder.makeBlob(audioBlobs, mediaRecorder, mediaRecorder._mime);
+            if (!blob || blob.size === 0) { alert('Recording is empty. Please record again.'); return; }
             recordedBlob = blob;
             var audio = document.getElementById('recAudio');
             audio.src = URL.createObjectURL(blob);
@@ -598,7 +601,8 @@ function startRecording() {
             document.getElementById('sendAudioBtn').style.display = 'inline-flex';
             stream.getTracks().forEach(function(t) { t.stop(); });
         };
-        mediaRecorder.start(1000);
+        try { mediaRecorder.start(1000); }
+        catch (e) { alert('Could not start recording. Please use the Upload tab instead.'); stream.getTracks().forEach(function(t) { t.stop(); }); return; }
         recMaxTimer = setTimeout(function() {
             if (mediaRecorder && mediaRecorder.state === 'recording') {
                 mediaRecorder.stop();

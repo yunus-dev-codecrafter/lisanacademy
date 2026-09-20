@@ -29,7 +29,8 @@ if (!is_dir($uploadDir)) {
 }
 
 // Save uploaded file — normalize it so it is guaranteed to play back (see
-// config/audio_fix.php). Videos and oversized files are rejected here.
+// config/audio_fix.php). Audio and video recordings are both accepted;
+// MP4-family files get a faststart rewrite so playback starts instantly.
 $res = audio_save_upload($_FILES['audio']['tmp_name'], $uploadDir, 'admin_', $_FILES['audio']['name']);
 if (!$res['ok']) {
     ui_message_page('danger', 'Upload Failed', $res['error'], 'teaching.php', 'Back to Teaching Dashboard', 'close');

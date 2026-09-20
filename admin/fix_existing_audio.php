@@ -101,7 +101,7 @@ foreach ($dirs as $key => $dirPath) {
     <div class="card-title"><h3 style="margin:0;"><?= ui_icon('mic', 17) ?> What needs attention</h3></div>
     <ul class="small" style="margin:8px 0 0;padding-left:18px;line-height:1.7;">
         <li><strong>M4A/MP4 “moov at end”</strong> — hang on “pause/loading”. Click <em>Fix</em> (or <em>Fix All</em>) to repair.</li>
-        <li><strong>Videos (.mov)</strong> — these contain a video track and cannot play in an audio player. They need converting with ffmpeg; until then you can download and listen off-line. Ask the student to re-record with the in-app recorder instead.</li>
+        <li><strong>Videos (.mov/.mp4 camera recordings)</strong> — these play in the <em>video</em> player below (audio track audible). If marked “moov at end”, click <em>Fix</em> so they start instantly.</li>
         <li><strong>WebM / Ogg / AAC</strong> — play on most Android/Chrome/Firefox but not on every iPhone. Recording through the app avoids these going forward.</li>
     </ul>
     <p class="small text-muted" style="margin:10px 0 0;"><strong><?= $total ?></strong> files scanned.
@@ -130,7 +130,7 @@ foreach ($dirs as $key => $dirPath) {
         </thead>
         <tbody>
         <?php foreach ($items as $r): ?>
-            <?php $fixable = ($r['type'] === 'mp4' && $r['slow'] && !$r['video']); ?>
+            <?php $fixable = ($r['type'] === 'mp4' && $r['slow']); ?>
             <tr style="border-bottom:1px solid rgba(0,0,0,.06);">
                 <td style="padding:6px 8px;word-break:break-all;max-width:300px;"><?= htmlspecialchars($r['name']) ?></td>
                 <td style="padding:6px 8px;white-space:nowrap;"><?= number_format($r['size'] / 1048576, 2) ?> MB</td>
@@ -138,7 +138,7 @@ foreach ($dirs as $key => $dirPath) {
                     <?php if ($r['type'] === '?'): ?>
                         <span class="badge badge-red">unknown</span>
                     <?php elseif ($r['video']): ?>
-                        <span class="badge badge-red">video</span>
+                        <span class="badge badge-blue">video</span>
                     <?php else: ?>
                         <span class="badge badge-blue"><?= htmlspecialchars($r['type']) ?></span>
                     <?php endif; ?>
@@ -147,10 +147,10 @@ foreach ($dirs as $key => $dirPath) {
                     <?php if ($r['type'] === '?'): ?>
                         <span class="badge badge-red">unreadable</span>
                         <span class="small text-muted"><?= htmlspecialchars($r['note']) ?></span>
-                    <?php elseif ($r['video']): ?>
-                        <span class="small" style="color:var(--danger);">needs ffmpeg</span>
                     <?php elseif ($fixable): ?>
                         <span class="badge badge-gold">moov at end — needs faststart</span>
+                    <?php elseif ($r['video']): ?>
+                        <span class="small text-muted">video — plays in video player</span>
                     <?php else: ?>
                         <span class="small text-muted"><?= htmlspecialchars($r['note'] ?: 'fine') ?></span>
                     <?php endif; ?>
@@ -178,8 +178,8 @@ foreach ($dirs as $key => $dirPath) {
 <div class="card animate-rise d5" style="margin-top:12px;">
     <div class="card-title"><h3 style="margin:0;"><?= ui_icon('refresh', 17) ?> Fix everything at once</h3></div>
     <p class="small" style="margin:6px 0 10px;">
-        Fixes every “moov at end” M4A/MP4 file across all folders, one request per file
-        (safe on shared hosting). Video files are skipped — they need ffmpeg.
+        Fixes every “moov at end” M4A/MP4/MOV file across all folders, one request per file
+        (safe on shared hosting, no ffmpeg needed).
     </p>
     <button id="fixAllBtn" class="btn btn-gold" type="button"><?= ui_icon('wrench', 16) ?> Fix All Fixable Files</button>
     <span id="fixAllStatus" class="small text-muted" style="margin-left:10px;"></span>

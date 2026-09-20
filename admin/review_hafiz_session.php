@@ -41,7 +41,7 @@ $page_no = (int)$session['page_no'];
 // Handle admin audio feedback upload
 $admin_audio = null;
 if (isset($_FILES['admin_audio']) && $_FILES['admin_audio']['error'] === UPLOAD_ERR_OK) {
-    $allowed = ['webm', 'mp3', 'm4a', 'ogg', 'wav', 'mp4', 'aac'];
+    $allowed = ['webm', 'mp3', 'm4a', 'ogg', 'wav', 'mp4', 'm4v', 'mov', '3gp', '3gpp', 'aac'];
     $ext = strtolower(pathinfo($_FILES['admin_audio']['name'], PATHINFO_EXTENSION));
     if (!in_array($ext, $allowed, true)) $ext = 'mp3';
 

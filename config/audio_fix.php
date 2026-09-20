@@ -5,28 +5,33 @@
 
    Why this exists
    ---------------
-   Student recordings used to be stored raw. That caused two kinds of
-   broken playback:
-     1. Large, non-streamable files — MediaRecorder m4a/webm blobs are big
-        and every MP4-family file has its moov metadata atom at the END,
-        so browsers cannot start playing until the whole file has been
-        downloaded (the player sits on "pause/loading" for a long time).
-     2. Unplayable formats — some students upload video files (.mov/.mp4
-        with an H.264 track) or Ogg/raw-AAC audio, which an <audio> tag
-        can never decode.
+    Student recordings used to be stored raw. That caused two kinds of
+    broken playback:
+      1. Large, non-streamable files — MediaRecorder m4a/webm blobs are big
+         and every MP4-family file has its moov metadata atom at the END,
+         so browsers cannot start playing until the whole file has been
+         downloaded (the player sits on "pause/loading" for a long time).
+      2. Unplayable-as-audio files — some students record VIDEO
+         (.mov/.mp4 with an H.264 track, e.g. iPhone camera with the lens
+         covered) which an <audio> tag can never decode. These must play
+         in a <video> tag instead of being rejected.
 
-   Strategy (in priority order)
-   ----------------------------
-   * If ffmpeg/ffprobe is available (VPS etc.) transcode everything to a
-     small, universally-playable MP3 (strip any video track, shrink bytes).
-   * Otherwise, pure-PHP fallback that works on shared hosts (InfinityFree):
-       - MP4 family  -> move moov in front of mdat ("faststart") and fix
-                        the chunk-offset tables so playback starts instantly.
-       - videos      -> reject with a clear message instead of storing an
-                        unplayable file.
-       - everything else stays as-is (extension normalized to its real
-         container so the right MIME type is served).
-   * Server-side size cap so absurdly large files are refused early.
+    Strategy (in priority order)
+    ----------------------------
+    * If ffmpeg/ffprobe is available (VPS etc.) transcode audio-only files
+      to a small, universally-playable MP3 (strip any video track only for
+      pure-audio destinations — NEVER for student submissions, where the
+      original video must be kept so the admin can hear it).
+    * Student/exam/hafiz submissions ACCEPT both audio and video: MP4
+      family (m4a/mp4/mov/m4v/3gp) is kept as-is with a pure-PHP faststart
+      rewrite (moov moved in front of mdat) so playback starts instantly
+      in <audio> (audio-only) or <video> (camera recordings).
+    * Otherwise, pure-PHP fallback that works on shared hosts (InfinityFree):
+        - MP4 family  -> move moov in front of mdat ("faststart") and fix
+                         the chunk-offset tables so playback starts instantly.
+        - everything else stays as-is (extension normalized to its real
+          container so the right MIME type is served).
+    * Server-side size cap so absurdly large files are refused early.
    ========================================================= */
 
 if (!defined('AUDIO_MAX_UPLOAD_BYTES')) {
@@ -420,10 +425,9 @@ if (!function_exists('audio_write_file_atomic')) {
 
 if (!function_exists('audio_error_video')) {
     function audio_error_video() {
-        return 'That file is a video, not an audio recording, so it cannot be '
-             . 'played as audio. Please record your recitation using the '
-             . '"Start Recording" button inside the app, or upload an audio '
-             . 'file such as a voice memo (.m4a, .mp3 or .webm).';
+        return 'That file is a video. It has been saved and can be played '
+             . 'in the video player below — listen to the audio track to '
+             . 'review the recitation.';
     }
 }
 
@@ -439,11 +443,13 @@ if (!function_exists('audio_error_unknown')) {
 /* ------------------------------------------------------------------ */
 
 if (!function_exists('audio_real_ext')) {
-    /* Pick a correct, streamable extension for a sniffed container. */
+    /* Pick a correct, streamable extension for a sniffed container.
+       MP4-family video originals (mov/mp4/m4v/3gp) keep their extension so
+       the admin <video> player serves the right MIME type. */
     function audio_real_ext($sniffed, $origExt) {
         switch ($sniffed) {
             case 'mp4':
-                if (in_array($origExt, array('m4a', 'mp4', 'mov'), true)) return $origExt;
+                if (in_array($origExt, array('m4a', 'mp4', 'mov', 'm4v', '3gp', '3gpp'), true)) return $origExt;
                 return 'm4a';
             case 'webm': return 'webm';
             case 'ogg':  return 'ogg';
@@ -455,9 +461,39 @@ if (!function_exists('audio_real_ext')) {
     }
 }
 
+if (!function_exists('media_is_video_ext')) {
+    /* True when the stored file needs a <video> tag (has or may have a
+       video track). Audio-only m4a/mp3/webm/ogg/wav/aac use <audio>. */
+    function media_is_video_ext($filename) {
+        $ext = strtolower(pathinfo((string)$filename, PATHINFO_EXTENSION));
+        return in_array($ext, array('mov', 'mp4', 'm4v', '3gp', '3gpp'), true);
+    }
+}
+
+if (!function_exists('media_player_html')) {
+    /* Echo-safe player: <video> for camera recordings, <audio> otherwise.
+       $baseUrl is e.g. '../uploads/student_audio/' (with trailing slash). */
+    function media_player_html($filename, $baseUrl) {
+        $url  = rtrim($baseUrl, '/') . '/' . rawurlencode((string)$filename);
+        // rawurlencode encodes for URL path; keep it safe for HTML too.
+        $url  = htmlspecialchars($url, ENT_QUOTES);
+        if (media_is_video_ext($filename)) {
+            return '<video controls preload="metadata" playsinline style="width:100%;max-width:520px;border-radius:12px;background:#000;" src="' . $url . '">'
+                 . 'Your browser cannot play this video. <a href="' . $url . '" download>Download it</a>.</video>';
+        }
+        return '<audio controls preload="metadata" style="width:100%;" src="' . $url . '">'
+             . 'Your browser cannot play this audio. <a href="' . $url . '" download>Download it</a>.</audio>';
+    }
+}
+
 if (!function_exists('audio_save_upload')) {
     /**
-     * Process an uploaded audio file and store a normalized copy.
+     * Process an uploaded audio OR VIDEO file and store a normalized copy.
+     *
+     * Student iPhone camera recordings (.mov/.mp4 with a video track) are
+     * ACCEPTED — they are faststarted in pure PHP so the admin <video>
+     * player starts instantly. Nothing is ever transcoded away on shared
+     * hosts without ffmpeg; audio-only uploads keep their prior behaviour.
      *
      * @param string $tmpPath  path of the uploaded temp file
      * @param string $destDir  absolute destination directory (must exist)
@@ -497,23 +533,23 @@ if (!function_exists('audio_save_upload')) {
 
         $ffmpeg = audio_ffmpeg_bin();
 
-        /* ---- 1. Video files -------------------------------------- */
+        /* ---- 1. Video files: ACCEPT and faststart (never reject) ----- */
         if ($isVideo) {
-            if ($ffmpeg !== '') {
-                $dest = $destDir . '/' . $base . '.mp3';
-                $work = $destDir . '/' . uniqid('trans_', true);
-                copy($tmpPath, $work);
-                $ok = audio_transcode_to_mp3($work, $dest);
-                @unlink($work);
-                if ($ok) {
-                    return array('ok' => true, 'file' => basename($dest), 'error' => '');
-                }
+            /* On hosts with ffmpeg, keep the original video as-is for
+               student submissions (admin needs the audio track audible in
+               a <video> tag). Transcoding to MP3 would discard the upload
+               the student actually made, so only faststart here. */
+            $fixed = audio_mp4_faststart($bin);
+            if ($fixed !== null) $bin = $fixed;
+            $target = $destDir . '/' . $base . '.' . $ext;
+            if (!audio_write_file_atomic($target, $bin)) {
+                return array('ok' => false, 'file' => null, 'error' => 'Could not save the recording. Please try again.');
             }
-            return array('ok' => false, 'file' => null, 'error' => audio_error_video());
+            return array('ok' => true, 'file' => basename($target), 'error' => '');
         }
 
-        /* ---- 2. ffmpeg available: transcode everything to MP3 ----- */
-        if ($ffmpeg !== '' && $sniffed !== 'mp3') {
+        /* ---- 2. ffmpeg available: transcode audio-only to MP3 --------- */
+        if ($ffmpeg !== '' && $sniffed !== 'mp3' && !$isVideo) {
             $dest = $destDir . '/' . $base . '.mp3';
             $work = $destDir . '/' . uniqid('trans_', true);
             copy($tmpPath, $work);
@@ -577,7 +613,8 @@ if (!function_exists('audio_analyze_file')) {
             $out['video'] = audio_detect_video_track($bin);
             $out['slow']  = audio_moov_after_mdat($bin);
             if ($out['slow'] && !$out['video']) $out['note'] = 'moov at end — faststart can fix';
-            if ($out['video'])                  $out['note'] = 'Contains a video track — not playable as audio';
+            if ($out['video'] && $out['slow'])  $out['note'] = 'Video, moov at end — faststart can fix, plays in <video> player';
+            if ($out['video'] && !$out['slow']) $out['note'] = 'Video (e.g. iPhone camera) — plays in <video> player, audio audible';
         } elseif ($out['type'] === 'webm') {
             $out['note'] = 'WebM/Opus — plays in Chrome/Edge/Firefox, not on iOS Safari';
         } elseif ($out['type'] === 'ogg') {
@@ -610,19 +647,17 @@ if (!function_exists('audio_fix_file')) {
             return array('changed' => false, 'note' => 'Unknown container');
         }
 
-        /* Videos can only be repaired with ffmpeg (strip the video track). */
-        $ffmpeg = audio_ffmpeg_bin();
+        /* Videos (e.g. iPhone camera .mov): faststart rewrite in place so
+           they start instantly in the admin <video> player. */
         if ($sniffed === 'mp4' && audio_detect_video_track($bin)) {
-            if ($ffmpeg !== '') {
-                $tmp = dirname($path) . '/' . uniqid('fixvideo_', true);
-                if (audio_transcode_to_mp3($path, $tmp)) {
-                    @rename($tmp, $path);
-                    return array('changed' => true, 'note' => 'Converted video → MP3');
+            $fixed = audio_mp4_faststart($bin);
+            if ($fixed !== null && $fixed !== $bin) {
+                if (audio_write_file_atomic($path, $fixed)) {
+                    return array('changed' => true, 'note' => 'faststart applied to video (moov moved to front)');
                 }
-                @unlink($tmp);
-                return array('changed' => false, 'note' => 'Video — needs ffmpeg to fix');
+                return array('changed' => false, 'note' => 'faststart write failed');
             }
-            return array('changed' => false, 'note' => 'Video — needs ffmpeg to fix');
+            return array('changed' => false, 'note' => 'video already stream-friendly — plays in <video> player');
         }
 
         /* MP4 audio: faststart rewrite in place. */

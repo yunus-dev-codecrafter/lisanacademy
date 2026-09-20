@@ -88,12 +88,13 @@ $audio_q = $conn->query("
         <?php else: ?>
         <div class="panel">
             <?php if ($device_type === 'iphone'): ?>
-                <strong>Upload your recitation:</strong>
+                <strong>Upload your recitation (audio or video):</strong>
                 <form method="post" enctype="multipart/form-data" action="submit_recitation.php" style="margin-top:10px;">
-                    <input type="file" name="audio" accept="audio/*" required>
+                    <input type="file" name="audio" accept="audio/*,video/*,.m4a,.mp3,.wav,.ogg,.webm,.aac,.mp4,.m4v,.mov,.3gp" required>
                     <input type="hidden" name="learning_plan_id" value="<?= (int)$a['lesson_id'] ?>">
                     <button type="submit" class="btn btn-sm" style="margin-top:10px;"><?= ui_icon('upload', 15) ?> Upload Recitation</button>
                 </form>
+                <p class="small text-muted" style="margin:8px 0 0;">Tip: iPhone camera video works — cover the lens and record, then upload the video here.</p>
             <?php else: ?>
                 <strong>Record your recitation:</strong>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
@@ -111,17 +112,10 @@ $audio_q = $conn->query("
 
 <?php ui_page_end(); ?>
 
+<script src="/assets/js/recorder.js"></script>
 <script>
-let recorders={},chunks={},blobs={},streams={};
+let recorders={},chunks={},blobs={},streams={},recMimes={},recExts={};
 
-const MIME = (window.MediaRecorder && (
-    MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' :
-    MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
-)) || '';
-const REC_EXT = MIME === 'audio/mp4' ? 'm4a' : 'webm';
-const REC_OPTS = MIME
-    ? { mimeType: MIME, audioBitsPerSecond: 48000, videoBitsPerSecond: 0 }
-    : { audioBitsPerSecond: 48000, videoBitsPerSecond: 0 };
 const REC_MAX_MS = 5 * 60 * 1000;
 const recMaxTimers = {};
 
@@ -141,12 +135,18 @@ function markCompleted(audioId,lessonId){
 
 function startRecording(id){
     chunks[id]=[];
+    if (!window.Recorder || !Recorder.supported()) return alert('Recording is not supported here. Please ask your teacher for the upload option.');
+    const picked = Recorder.pick();
+    recMimes[id]=picked.mime; recExts[id]=picked.ext;
     navigator.mediaDevices.getUserMedia({audio:true})
     .then(s=>{
         streams[id]=s;
-        recorders[id]=new MediaRecorder(s, REC_OPTS);
-        recorders[id].ondataavailable=e=>chunks[id].push(e.data);
-        recorders[id].start(1000);
+        try { recorders[id]=Recorder.create(s, recMimes[id]); }
+        catch(e){ alert('Recording failed to start. You can upload an audio/video file instead.'); s.getTracks().forEach(t=>t.stop()); return; }
+        try { if (recorders[id].mimeType) recMimes[id]=recorders[id].mimeType; } catch(e){}
+        recorders[id].ondataavailable=e=>{ if(e.data && e.data.size) chunks[id].push(e.data); };
+        recorders[id].onerror=()=>{ clearTimeout(recMaxTimers[id]); alert('Recording failed. Please try again.'); };
+        try { recorders[id].start(1000); } catch(e){ alert('Could not start recording.'); return; }
         recMaxTimers[id]=setTimeout(()=>{
             if(recorders[id] && recorders[id].state==='recording'){
                 recorders[id].stop();
@@ -161,7 +161,8 @@ function stopRecording(id){
     if(!recorders[id])return alert('Not recording');
     recorders[id].onstop=()=>{
         clearTimeout(recMaxTimers[id]);
-        const b=new Blob(chunks[id],{type: MIME || 'audio/webm'});
+        const b=Recorder.makeBlob(chunks[id], recorders[id], recMimes[id]);
+        if (!b || b.size === 0) return alert('Recording is empty. Please record again.');
         blobs[id]=b;
         const a=document.getElementById('preview_'+id);
         a.src=URL.createObjectURL(b);
@@ -173,8 +174,9 @@ function stopRecording(id){
 
 function sendRecitation(id){
     if(!blobs[id])return alert('No recording found.');
+    if(blobs[id].size === 0)return alert('Recording is empty. Please record again.');
     const fd=new FormData();
-    fd.append('audio',blobs[id],'recitation_'+id+'.'+REC_EXT);
+    fd.append('audio',blobs[id],'recitation_'+id+'.'+(recExts[id] || 'm4a'));
     fd.append('learning_plan_id',id);
     fetch('submit_recitation.php',{method:'POST',headers:{'X-Requested-With':'XMLHttpRequest'},body:fd})
     .then(r=>r.text())

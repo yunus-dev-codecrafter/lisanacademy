@@ -42,6 +42,15 @@ if (!isset($_FILES['audio']) || $_FILES['audio']['error'] !== UPLOAD_ERR_OK) {
 $student_id        = (int)$_SESSION['user_id'];
 $learning_plan_id  = (int)$_POST['learning_plan_id'];
 
+/* The lesson must belong to this student — prevents orphaned rows. */
+$stmt = $conn->prepare("SELECT id FROM lessons WHERE id = ? AND student_id = ? LIMIT 1");
+$stmt->bind_param("ii", $learning_plan_id, $student_id);
+$stmt->execute();
+if ($stmt->get_result()->num_rows === 0) {
+    if ($is_ajax) { echo 'Invalid lesson.'; exit; }
+    exit('Invalid lesson.');
+}
+
 /* Ensure upload directory exists */
 $upload_dir = __DIR__ . '/../uploads/student_audio/';
 if (!is_dir($upload_dir)) {
