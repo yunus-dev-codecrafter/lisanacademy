@@ -92,9 +92,16 @@ $pending_recitations = $pending_recitations_submissions + $pending_lesson_reques
 
 <?php ui_page_start('admin', 'dashboard', 'Dashboard'); ?>
 
-<div class="page-hero animate-rise">
-    <h1>Assalamu alaikum</h1>
-    <p><span id="liveClock">—</span></p>
+<div class="hero-banner animate-rise">
+    <span class="hero-banner-ico"><?= ui_icon('grid', 26) ?></span>
+    <div style="flex:1;min-width:220px;">
+        <h1>Assalamu alaikum</h1>
+        <p><span id="liveClock">—</span> · Here’s what’s happening across the academy.</p>
+    </div>
+    <div class="hero-banner-actions">
+        <a class="btn btn-gold btn-sm" href="teaching.php"><?= ui_icon('book', 15) ?> Teaching<?php if ($pending_recitations > 0): ?> (<?= $pending_recitations ?>)<?php endif; ?></a>
+        <a class="btn btn-sm btn-outline-light" href="applications.php"><?= ui_icon('clipboard', 15) ?> Applications</a>
+    </div>
 </div>
 
 <?php if ($holiday_on): ?>
@@ -114,48 +121,43 @@ $islamiyya_live_count = 0;
 $islamiyya_total      = 0;
 foreach ((islamiyya_books($conn) ?? []) as $b) {
     $islamiyya_total++;
-    $r = islamiyya_book_readiness($conn, $b);
-    if ((int)($b['status'] ?? 0) === 1 && !empty($r['ready'])) $islamiyya_live_count++;
+    if (islamiyya_book_is_live($conn, $b)) $islamiyya_live_count++;
 }
 ?>
 <div class="stat-grid animate-rise d1">
     <div class="stat-card stat-green">
-        <span class="stat-ico"><?= ui_icon('users') ?></span>
+        <span class="stat-ico"><?= ui_icon('users', 22) ?></span>
         <span class="stat-label">Total Students</span>
         <span class="stat-value"><?= $total_students ?></span>
         <span class="stat-sub">Enrolled in the academy</span>
     </div>
 
     <a href="all_students_requests.php" class="stat-card top gold">
-        <span class="stat-ico"><?= ui_icon('trophy') ?></span>
+        <span class="stat-ico"><?= ui_icon('trophy', 22) ?></span>
         <span class="stat-label">Top Student</span>
         <span class="stat-value"><?= htmlspecialchars($top_student['name'] ?? 'No students') ?></span>
         <span class="stat-pill"><?= (int)($top_student['requests_count'] ?? 0) ?> requests</span>
     </a>
 
     <div class="stat-card stat-gold">
-        <span class="stat-ico"><?= ui_icon('clock') ?></span>
+        <span class="stat-ico"><?= ui_icon('clock', 22) ?></span>
         <span class="stat-label">Pending Work</span>
         <span class="stat-value"><?= $pending_recitations ?></span>
         <span class="stat-sub">Recitations · lessons · live</span>
     </div>
+
+    <a href="islamiyya.php" class="stat-card stat-blue" title="Digital Islamiyya — manage books">
+        <span class="stat-ico"><?= ui_icon('book-open', 22) ?></span>
+        <span class="stat-label">Digital Islamiyya</span>
+        <span class="stat-value"><?= $islamiyya_live_count ?> <span class="small text-muted">/ <?= $islamiyya_total ?></span></span>
+        <span class="stat-sub"><?= $islamiyya_live_count > 0 ? 'books live for students' : 'books sealed — coming soon' ?></span>
+    </a>
 </div>
 
+<div class="section-label animate-rise d2"><?= ui_icon('grid', 16) ?> Quick Actions</div>
 <div class="action-grid animate-rise d2">
-    <a href="announcements.php" class="action-card action-emerald">
-        <span class="ac-ico"><?= ui_icon('bell') ?></span>
-        <span class="ac-title">Announcements</span>
-        <span class="ac-sub">Post and manage announcements</span>
-    </a>
-
-    <a href="students.php" class="action-card action-forest">
-        <span class="ac-ico"><?= ui_icon('users') ?></span>
-        <span class="ac-title">Students</span>
-        <span class="ac-sub">View and manage students</span>
-    </a>
-
     <a href="teaching.php" class="action-card action-gold">
-        <span class="ac-ico"><?= ui_icon('book') ?></span>
+        <span class="ac-ico"><?= ui_icon('book', 24) ?></span>
         <span class="ac-title">Teaching</span>
         <span class="ac-sub">Lesson requests &amp; recitations</span>
         <?php if ($pending_recitations > 0): ?>
@@ -163,14 +165,35 @@ foreach ((islamiyya_books($conn) ?? []) as $b) {
         <?php endif; ?>
     </a>
 
+    <a href="students.php" class="action-card action-forest">
+        <span class="ac-ico"><?= ui_icon('users', 24) ?></span>
+        <span class="ac-title">Students</span>
+        <span class="ac-sub">View and manage students</span>
+    </a>
+
+    <a href="announcements.php" class="action-card action-emerald">
+        <span class="ac-ico"><?= ui_icon('bell', 24) ?></span>
+        <span class="ac-title">Announcements</span>
+        <span class="ac-sub">Post and manage announcements</span>
+    </a>
+
+    <a href="islamiyya.php" class="action-card action-purple">
+        <span class="ac-ico"><?= ui_icon('book-open', 24) ?></span>
+        <span class="ac-title">Digital Islamiyya</span>
+        <span class="ac-sub">Manage books, lessons &amp; quizzes</span>
+        <?php if ($islamiyya_live_count > 0): ?>
+            <span class="badge badge-count ac-badge"><?= $islamiyya_live_count ?> live</span>
+        <?php endif; ?>
+    </a>
+
     <a href="suggestions.php" class="action-card action-blue">
-        <span class="ac-ico"><?= ui_icon('bulb') ?></span>
+        <span class="ac-ico"><?= ui_icon('bulb', 24) ?></span>
         <span class="ac-title">Suggestions</span>
         <span class="ac-sub">Read student feedback</span>
     </a>
 
     <a href="invites.php" class="action-card action-gold">
-        <span class="ac-ico"><?= ui_icon('gift') ?></span>
+        <span class="ac-ico"><?= ui_icon('gift', 24) ?></span>
         <span class="ac-title">Invites &amp; Referrals</span>
         <span class="ac-sub">Student invites &amp; 15% rewards</span>
     </a>

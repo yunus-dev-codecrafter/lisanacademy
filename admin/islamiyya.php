@@ -31,18 +31,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $description  = trim($_POST['description'] ?? '');
         $media_type   = ($_POST['media_type'] ?? 'audio') === 'video' ? 'video' : 'audio';
         $total_lessons= max(1, (int)($_POST['total_lessons'] ?? 1));
-        $sort_order   = (int)($_POST['sort_order'] ?? 0Pic);
-        $status       = ($_POST['status'] ?? '') === 'live' ? 'live' : 'draft';
+        $sort_order   = (int)($_POST['sort_order'] ?? 0);
+        $status       = ($_POST['status'] ?? '') === 'live' ? 'live' : 'coming_soon';
 
         if ($title === '') {
             $err = 'Book title is required.';
         } else {
             if ($id > 0) {
                 $stmt = $conn->prepare("UPDATE islamiyya_books SET title=?, title_en=?, author=?, description=?, media_type=?, total_lessons=?, sort_order=?, status=? WHERE id=?");
-                $stmt->bind_param("sssssiiisi", $title, $title_en, $author, $description, $media_type, $total_lessons, $sort_order, $status, $id);
+                $stmt->bind_param("sssssiisi", $title, $title_en, $author, $description, $media_type, $total_lessons, $sort_order, $status, $id);
             } else {
                 $stmt = $conn->prepare("INSERT INTO islamiyya_books (title, title_en, author, description, media_type, total_lessons, sort_order, status) VALUES (?,?,?,?,?,?,?,?)");
-                $stmt->bind_param("sssssiiis", $title, $title_en, $author, $description, $media_type, $total_lessons, $sort_order, $status);
+                $stmt->bind_param("sssssiis", $title, $title_en, $author, $description, $media_type, $total_lessons, $sort_order, $status);
             }
             if ($stmt->execute()) {
                 $book_id = $id > 0 ? $id : (int)$conn->insert_id;
@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($act === 'toggle') {
         if ($id > 0 && islamiyya_book($conn, $id)) {
             $book = islamiyya_book($conn, $id);
-            $new  = $book['status'] === 'live' ? 'draft' : 'live';
+            $new  = $book['status'] === 'live' ? 'coming_soon' : 'live';
             $conn->prepare("UPDATE islamiyya_books SET status=? WHERE id=?")->execute([$new, $id]);
             $msg = $new === 'live' ? 'Book published (students can now see it).' : 'Book unpublished.';
         } else {
@@ -104,7 +104,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($ok) {
                 $fname = 'book' . $id . '_' . time() . '.' . $ext;
                 if (move_uploaded_file($_FILES[$field]['tmp_name'], $dest . '/' . $fname)) {
-                    $stmt = $conn->prepare("UPDATE islamiyya_books SET {$field}_image=?, {$field}_file=? WHERE id=?");
                     $col  = $act === 'cover' ? 'cover_image' : 'pdf_file';
                     $stmt = $conn->prepare("UPDATE islamiyya_books SET $col=? WHERE id=?");
                     $stmt->bind_param("si", $fname, $id);
@@ -227,7 +226,7 @@ foreach ($all_books as $b) {
     $e_media       = $editing['media_type'] ?? 'audio';
     $e_total       = (int)($editing['total_lessons'] ?? 1);
     $e_sort        = (int)($editing['sort_order'] ?? 0);
-    $e_status      = $editing['status'] ?? 'draft';
+    $e_status      = $editing['status'] ?? 'coming_soon';
 ?>
 <div class="card animate-rise" style="margin-bottom:18px;">
     <div class="card-title"><h3><?= $editing ? 'Edit Book' : 'Add New Book' ?></h3><span class="small text-muted"><?= $editing ? 'Editing #' . (int)$editing['id'] : 'Fill in the book details' ?></span></div>

@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
 
     $want     = (int)($_POST['subscribe'] ?? -1);          /* -1 = no-op, 0/1 explicit */
-    $current  = islamiyya_subscribed($conn, $student_id)    ? 1 : 0 + 0;
+    $current  = islamiyya_subscribed($conn, $student_id) ? 1 : 0;
     $new      = $want >= 0 ? $want : $current;
     if ($new !== $current) {
         $stmt = $conn->prepare("UPDATE users SET islamiyya_subscribed = ? WHERE id = ?");
@@ -64,7 +64,7 @@ $cards       = [];
 
 foreach ($books as $b) {
     $ready = islamiyya_book_readiness($conn, $b) ?? [];
-    $open  = (int)($b['status'] ?? 0) === 1 && !empty($ready['ready']);
+    $open  = islamiyya_book_is_live($conn, $b);
 
     if ($open) { $live_count++; } else { $coming_count++; }
 

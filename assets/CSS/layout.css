@@ -128,11 +128,17 @@
 .stat-card .stat-value{font-family:var(--font-display);font-weight:800;font-size:2rem;line-height:1;color:var(--text);word-break:break-word}
 .stat-card .stat-sub{font-size:.84rem;color:var(--text-muted);margin-top:8px;word-break:break-word}
 .stat-card .stat-value .small{font-size:.85rem}
-.stat-card .stat-ico{position:absolute;top:16px;right:16px;width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:1.15rem}
-.stat-green .stat-ico{background:var(--emerald-100)}
-.stat-gold .stat-ico{background:linear-gradient(135deg,#f1dfae,#e7c87c)}
-.stat-blue .stat-ico{background:var(--info-bg)}
-.stat-red .stat-ico{background:var(--danger-bg)}
+.stat-card .stat-ico{position:absolute;top:16px;right:16px;width:44px;height:44px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:1.15rem;box-shadow:inset 0 0 0 1px rgba(15,23,42,.06),0 4px 12px rgba(15,23,42,.08)}
+.stat-green .stat-ico{background:linear-gradient(135deg,#d1fae5,#a7f3d0);color:#065f46}
+.stat-gold .stat-ico{background:linear-gradient(135deg,#f3e2b3,#e3bd63);color:#7a5a15}
+.stat-blue .stat-ico{background:linear-gradient(135deg,#dbeafe,#bfdbfe);color:#1d4ed8}
+.stat-red .stat-ico{background:linear-gradient(135deg,#fee2e2,#fecaca);color:#b91c1c}
+/* thin gradient accent across the top of every stat card */
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--emerald-600),var(--emerald-400));opacity:.9}
+.stat-gold.stat-card::before,.stat-card.stat-gold::before{background:linear-gradient(90deg,var(--gold-deep),var(--gold-light))}
+.stat-blue.stat-card::before{background:linear-gradient(90deg,#1d4ed8,#60a5fa)}
+.stat-red.stat-card::before{background:linear-gradient(90deg,#b91c1c,#f87171)}
+.stat-card.top.gold::before{background:rgba(255,255,255,.4)}
 .stat-card a,.stat-card a:hover{color:inherit;text-decoration:none}
 .stat-card.top.gold{
   background:linear-gradient(135deg,var(--emerald-900),var(--emerald-700));
@@ -169,6 +175,52 @@
 .action-gold{background:linear-gradient(135deg,var(--gold-deep),var(--gold))}
 .action-blue{background:linear-gradient(135deg,#1d4ed8,#3b82f6)}
 .action-red{background:linear-gradient(135deg,#b91c1c,#ef4444)}
+.action-purple{background:linear-gradient(135deg,#5b21b6,#8b5cf6)}
+
+/* Dashboard greeting banner (student + admin) */
+.hero-banner{
+  position:relative;overflow:hidden;
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  padding:26px 28px;margin-bottom:22px;
+  border-radius:var(--radius-lg);
+  background:linear-gradient(120deg,#04302a 0%,#075549 55%,#0b6b4f 100%);
+  color:#fff;box-shadow:var(--shadow-green);
+}
+.hero-banner::before{content:'';position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(520px 170px at 105% -20%, rgba(227,201,139,.32), transparent 60%),
+    radial-gradient(380px 230px at -5% 115%, rgba(16,185,129,.22), transparent 55%);}
+.hero-banner > *{position:relative;z-index:1}
+.hero-banner h1{margin:0 0 4px;color:#fff;font-size:1.5rem}
+.hero-banner p{margin:0;color:rgba(255,255,255,.85);font-size:.92rem;max-width:640px}
+.hero-banner-ico{width:54px;height:54px;flex:none;border-radius:15px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,var(--gold-light),var(--gold));color:var(--emerald-950);
+  box-shadow:0 8px 20px rgba(0,0,0,.25)}
+.hero-banner-actions{margin-left:auto;display:flex;gap:10px;flex-wrap:wrap}
+.btn-outline-light{background:rgba(255,255,255,.12);color:#fff;border:1.5px solid rgba(255,255,255,.35)}
+.btn-outline-light:hover{background:rgba(255,255,255,.22);color:#fff;box-shadow:none}
+
+/* "Quick Actions" section label with rule */
+.section-label{font-family:var(--font-display);font-weight:700;font-size:.95rem;color:var(--text);
+  margin:26px 0 12px;display:flex;align-items:center;gap:10px}
+.section-label::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* Lesson-from-admin card header */
+.lesson-head{display:flex;gap:12px;align-items:center;margin-bottom:10px}
+.lesson-ico{width:44px;height:44px;flex:none;border-radius:12px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#d1fae5,#a7f3d0);color:#065f46;
+  box-shadow:inset 0 0 0 1px rgba(15,23,42,.06)}
+.lesson-head h3{margin:0}
+
+/* Live-recitation status pill */
+.live-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;
+  font-size:.72rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.live-pill.ready{background:var(--success-bg);color:var(--success);border:1px solid var(--success-border)}
+.live-pill.off{background:#f1f5f4;color:var(--text-muted);border:1px solid var(--border)}
+
+/* Gold divider inside the Qur'an companion banner */
+.star-divider{display:block;width:64px;height:3px;border-radius:999px;margin:10px auto 4px;
+  background:linear-gradient(90deg,var(--gold-deep),var(--gold-light))}
 
 /* Quran companion / star card */
 .quran-star-card{
@@ -188,7 +240,8 @@
   position:absolute;inset:0;pointer-events:none;
   background:
     radial-gradient(560px 200px at 100% 0%, rgba(227,201,139,.30), transparent 62%),
-    radial-gradient(400px 260px at 0% 100%, rgba(16,185,129,.25), transparent 60%);
+    radial-gradient(400px 260px at 0% 100%, rgba(16,185,129,.25), transparent 60%),
+    url("data:image/svg+xml,%3Csvg width='42' height='42' viewBox='0 0 42 42' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='6' cy='6' r='1' fill='%23e3c98b' fill-opacity='.45'/%3E%3Ccircle cx='6' cy='36' r='1' fill='%23e3c98b' fill-opacity='.28'/%3E%3Ccircle cx='36' cy='21' r='1' fill='%23e3c98b' fill-opacity='.32'/%3E%3C/svg%3E");
 }
 .quran-star-content{position:relative;z-index:1;text-align:center}
 .quran-star-content h3{margin:0 0 10px;color:#fff;font-size:1.15rem}
@@ -241,6 +294,11 @@
 }
 
 @media (max-width: 720px){
+  .hero-banner{padding:20px;gap:14px;margin-bottom:18px}
+  .hero-banner h1{font-size:1.25rem}
+  .hero-banner-ico{width:46px;height:46px}
+  .hero-banner-actions{margin-left:0;width:100%}
+  .hero-banner-actions .btn{flex:1}
   .main-content{padding:24px 16px 20px}
   .page-hero h1{font-size:1.35rem}
   .stat-grid{grid-template-columns:1fr;gap:14px;margin-bottom:18px}

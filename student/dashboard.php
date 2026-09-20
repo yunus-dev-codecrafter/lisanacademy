@@ -79,9 +79,20 @@ if ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1) {
 <?php ui_page_start('student', 'dashboard', 'Dashboard'); ?>
 <?= csrf_field() ?>
 
-<div class="page-hero animate-rise">
-    <h1>Assalamu alaikum, <?=htmlspecialchars($student['name'])?></h1>
-    <p>Here’s your learning overview, <?=htmlspecialchars($student['email'])?></p>
+<div class="hero-banner animate-rise">
+    <span class="hero-banner-ico"><?= ui_icon('book-open', 26) ?></span>
+    <div style="flex:1;min-width:220px;">
+        <h1>Assalamu alaikum, <?=htmlspecialchars($student['name'])?></h1>
+        <p>Here’s your learning overview · <?=htmlspecialchars($student['email'])?></p>
+    </div>
+    <div class="hero-banner-actions">
+        <?php if ($is_hafiz): ?>
+            <a class="btn btn-gold btn-sm" href="hafiz_revision.php"><?= ui_icon('book', 15) ?> Continue Revision</a>
+        <?php else: ?>
+            <a class="btn btn-gold btn-sm" href="my_learning.php"><?= ui_icon('book', 15) ?> Continue Learning</a>
+        <?php endif; ?>
+        <a class="btn btn-sm btn-outline-light" href="announcements.php"><?= ui_icon('bell', 15) ?> Updates<?php if ($announcementCount > 0): ?> (<?=$announcementCount?>)<?php endif; ?></a>
+    </div>
 </div>
 
 <?php if ($exam_mode): ?>
@@ -107,14 +118,13 @@ if ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1) {
  * question pack is uploaded. Until then the card stays sealed. */
 $islamiyya_live_count = 0;
 foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
-    $islamiyya_readiness = islamiyya_book_readiness($conn, $islamiyya_book);
-    if ((int)($islamiyya_book['status'] ?? 0) === 1 && !empty($islamiyya_readiness['ready'])) $islamiyya_live_count++;
+    if (islamiyya_book_is_live($conn, $islamiyya_book)) $islamiyya_live_count++;
 }
 ?>
 <div class="stat-grid animate-rise d1">
     <a class="stat-card stat-gold" href="islamiyya.php"
         title="Digital Islamiyya — curated foundational books, sealed until fully ready">
-        <span class="stat-ico"><?= ui_icon('book-open') ?></span>
+        <span class="stat-ico"><?= ui_icon('book-open', 22) ?></span>
         <span class="stat-label">Digital Islamiyya</span>
         <span class="stat-value"><?= $islamiyya_live_count ?></span>
         <span class="stat-sub"><?= $islamiyya_live_count > 0 ? 'live books — open in the catalog' : 'sealed — Coming Soon' ?></span>
@@ -129,7 +139,7 @@ foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
     $hafiz_juz_no = $hafiz_revision ? hafiz_current_week_no($hafiz_revision) : 1;
     ?>
     <a class="stat-card stat-green" href="hafiz_revision.php">
-        <span class="stat-ico"><?= ui_icon('book', 20) ?></span>
+        <span class="stat-ico"><?= ui_icon('book', 22) ?></span>
         <span class="stat-label">Qur'an Revision</span>
         <span class="stat-value">Juz <?= $hafiz_juz_no ?> <span class="small text-muted">· <?= $hafiz_completed ?>/604 pages</span></span>
         <div class="progress" style="margin-top:10px;">
@@ -137,15 +147,15 @@ foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
             <div class="progress-text"><?=$hafiz_pct?>%</div>
         </div>
     </a>
-    <div class="stat-card stat-gold">
-        <span class="stat-ico"><?= ui_icon('chat', 20) ?></span>
+    <a class="stat-card stat-gold" href="feedback.php" title="Review feedback from your teacher">
+        <span class="stat-ico"><?= ui_icon('chat', 22) ?></span>
         <span class="stat-label">New Feedback</span>
         <span class="stat-value"><?=$feedbackCount?></span>
         <span class="stat-sub">Review from your teacher</span>
-    </div>
+    </a>
     <?php if ($hafiz_completed_cycles > 0): ?>
     <div class="stat-card stat-blue">
-        <span class="stat-ico"><?= ui_icon('trophy', 20) ?></span>
+        <span class="stat-ico"><?= ui_icon('trophy', 22) ?></span>
         <span class="stat-label">Completed Cycles</span>
         <span class="stat-value"><?=$hafiz_completed_cycles?></span>
         <span class="stat-sub">Daurah cycles finished</span>
@@ -153,7 +163,7 @@ foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
     <?php endif; ?>
     <?php else: ?>
     <a class="stat-card stat-green" href="my_learning.php">
-        <span class="stat-ico"><?= ui_icon('book', 20) ?></span>
+        <span class="stat-ico"><?= ui_icon('book', 22) ?></span>
         <span class="stat-label">Surahs Completed</span>
         <span class="stat-value"><?=$done?> <span class="small text-muted">/ <?=$total?></span></span>
         <div class="progress" style="margin-top:10px;">
@@ -161,18 +171,18 @@ foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
             <div class="progress-text"><?=$percent?>%</div>
         </div>
     </a>
-    <div class="stat-card stat-gold">
-        <span class="stat-ico"><?= ui_icon('chat', 20) ?></span>
+    <a class="stat-card stat-gold" href="feedback.php" title="Review feedback from your teacher">
+        <span class="stat-ico"><?= ui_icon('chat', 22) ?></span>
         <span class="stat-label">New Feedback</span>
         <span class="stat-value"><?=$feedbackCount?></span>
         <span class="stat-sub">Review from your teacher</span>
-    </div>
-    <div class="stat-card stat-blue">
-        <span class="stat-ico"><?= ui_icon('bell', 20) ?></span>
+    </a>
+    <a class="stat-card stat-blue" href="announcements.php" title="Read the latest updates">
+        <span class="stat-ico"><?= ui_icon('bell', 22) ?></span>
         <span class="stat-label">Announcements</span>
         <span class="stat-value"><?=$announcementCount?></span>
         <span class="stat-sub">Unread updates</span>
-    </div>
+    </a>
     <?php endif; ?>
 </div>
 
@@ -182,7 +192,8 @@ foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
 <div class="quran-star-card animate-rise d2" onclick="openRanking()">  
     <div class="quran-star-overlay"></div>  
     <div class="quran-star-content">  
-        <h3><?= ui_icon('star', 20) ?> Real Qur’an Companion</h3>  
+        <h3><?= ui_icon('star', 20) ?> Real Qur’an Companion</h3>
+        <span class="star-divider"></span>  
         <?php  
         /* FETCH TOP STUDENT */  
         $top = $conn->query("  
@@ -221,7 +232,10 @@ foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
 
 <!-- New Lesson card (feature) -->
 <div class="card animate-rise d3">
-    <div class="card-title"><h3><?= ui_icon('book-open', 18) ?> New Lesson from Admin</h3></div>
+    <div class="card-title lesson-head">
+        <span class="lesson-ico"><?= ui_icon('book-open', 20) ?></span>
+        <div><h3>New Lesson from Admin</h3><p class="card-subtitle">Listen, then mark it complete</p></div>
+    </div>
     <?php if ($exam_mode): ?>
         <div class="alert alert-warning" style="margin:0;"><?= ui_icon('alert', 16) ?> Recitation is paused while exam mode is active. You may still listen to your lessons.</div>
     <?php elseif($lessonAudio): ?>    
@@ -245,10 +259,11 @@ foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
 <div class="card live-recitation-card <?= $liveUnlocked ? 'unlocked' : 'locked' ?>" id="liveRecitationCard">
     <div class="card-title" style="display:flex;align-items:center;gap:12px;">
         <span class="live-icon"><?= ui_icon('video', 30) ?></span>
-        <div>
+        <div style="flex:1;">
             <h3>Live Qur’an Recitation</h3>
             <p class="small text-muted" style="margin:0;">Recite your new lesson live with your teacher via Google Meet.</p>
         </div>
+        <span class="live-pill <?= $liveUnlocked ? 'ready' : 'off' ?>"><?= $liveUnlocked ? 'Ready' : 'Locked' ?></span>
     </div>
     <?php if (!$liveUnlocked): ?>
         <p class="small text-muted mt-2">Available once you complete your lesson.</p>
@@ -260,45 +275,48 @@ foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
 </div>
 <?php endif; ?>
 
-<div class="grid-2">
+<div class="section-label animate-rise d3"><?= ui_icon('grid', 16) ?> Quick Actions</div>
+<div class="action-grid">
     <?php if (!$is_hafiz && $done > 0): ?>
     <a class="action-card action-gold animate-rise d3" href="certificate.php">
-        <span class="ac-ico"><?= ui_icon('gem') ?></span>
+        <span class="ac-ico"><?= ui_icon('gem', 24) ?></span>
         <span class="ac-title">Certificate</span>
         <span class="ac-sub">View &amp; print your certificate</span>
     </a>
     <?php endif; ?>
     <a class="action-card action-emerald animate-rise d3" href="profile.php">
-        <span class="ac-ico"><?= ui_icon('user') ?></span>
+        <span class="ac-ico"><?= ui_icon('user', 24) ?></span>
         <span class="ac-title">Profile</span>
         <span class="ac-sub">Manage your account</span>
     </a>
     <a class="action-card action-forest animate-rise d3" href="announcements.php">
-        <span class="ac-ico"><?= ui_icon('bell') ?></span>
-        <span class="ac-title">Announcements <?php if($announcementCount > 0): ?><span class="badge badge-count"><?=$announcementCount?></span><?php endif; ?></span>
+        <span class="ac-ico"><?= ui_icon('bell', 24) ?></span>
+        <span class="ac-title">Announcements</span>
         <span class="ac-sub">Latest updates</span>
+        <?php if ($announcementCount > 0): ?><span class="badge badge-count ac-badge"><?=$announcementCount?> new</span><?php endif; ?>
     </a>
     <?php if ($is_hafiz): ?>
     <a class="action-card action-gold animate-rise d4" href="hafiz_revision.php">
-        <span class="ac-ico"><?= ui_icon('book') ?></span>
+        <span class="ac-ico"><?= ui_icon('book', 24) ?></span>
         <span class="ac-title">Qur'an Revision</span>
         <span class="ac-sub">Continue your page revision</span>
     </a>
     <?php else: ?>
     <a class="action-card action-gold animate-rise d4" href="my_learning.php">
-        <span class="ac-ico"><?= ui_icon('book') ?></span>
+        <span class="ac-ico"><?= ui_icon('book', 24) ?></span>
         <span class="ac-title">My Learning</span>
         <span class="ac-sub">Track your current surah</span>
     </a>
     <?php endif; ?>
     <a class="action-card action-blue animate-rise d4" href="feedback.php">
-        <span class="ac-ico"><?= ui_icon('chat') ?></span>
-        <span class="ac-title">Admin's Feedback <?php if($feedbackCount > 0): ?><span class="badge badge-count"><?=$feedbackCount?></span><?php endif; ?></span>
+        <span class="ac-ico"><?= ui_icon('chat', 24) ?></span>
+        <span class="ac-title">Admin's Feedback</span>
         <span class="ac-sub">View teacher feedback</span>
+        <?php if ($feedbackCount > 0): ?><span class="badge badge-count ac-badge"><?=$feedbackCount?> new</span><?php endif; ?>
     </a>
 </div>
 
-<a class="card card-danger mt-2" style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;text-decoration:none;color:inherit;" href="reset_progress.php">
+<a class="card card-danger mt-2 animate-rise" style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;text-decoration:none;color:inherit;" href="reset_progress.php">
     <div style="flex:1;min-width:220px;">
         <h3 style="color:var(--danger);margin:0 0 6px;display:flex;align-items:center;gap:8px;"><?= ui_icon('alert', 18) ?> Restart Your Learning</h3>
         <p class="small text-muted" style="margin:0;">Reset your plan, recitations and completed surahs. Cannot be undone.</p>
