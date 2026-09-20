@@ -53,21 +53,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $err = 'Lesson #' . $lesson_no . ' already exists for this book — pick another number.';
             } else {
                 $media_file = null;
-                if (!empty($_FILES['media']) && $_FILES['media']['error'] === 0) {
-                    $ext = strtolower(pathinfo($_FILES['media']['name'], PATHINFO_EXTENSION));
-                    $audio_ok = ['mp3', 'm4a', 'wav', 'ogg'];
-                    $video_ok = ['mp4', 'webm', 'mov'];
-                    $allowed  = $media_type === 'video' ? $video_ok : $audio_ok;
-                    if (!in_array($ext, $allowed, true)) {
-                        $err = $media_type === 'video' ? 'Video must be MP4, WebM or MOV.' : 'Audio must be MP3, M4A, WAV or OGG.';
-                    } else {
-                        $dest = __DIR__ . '/../uploads/islamiyya_media';
-                        if (!is_dir($dest)) @mkdir($dest, 0775, true);
-                        $fname = 'book' . $book_id . '_lesson' . $lesson_no . '_' . time() . '.' . $ext;
-                        if (move_uploaded_file($_FILES['media']['tmp_name'], $dest . '/' . $fname)) {
-                            $media_file = $fname;
+                /* Supported types: expanded to cover phone recorders (3GP/AMR),
+                   WhatsApp/Telegram voice notes (OPUS/OGG), and common
+                   compressed formats. MP3 64kbps mono remains the recommended
+                   upload for small-but-clear voice lessons. */
+                $audio_ok = ['mp3', 'm4a', 'm4b', 'ogg', 'oga', 'opus', 'aac', 'wav', 'flac', 'wma', '3gp', 'amr', 'webm'];
+                $video_ok = ['mp4', 'webm', 'mov'];
+                $audio_label = 'MP3, M4A, OGG, OPUS, AAC, WAV, FLAC, 3GP, AMR, WMA or WebM audio';
+                $video_label = 'MP4, WebM or MOV';
+                if (!empty($_FILES['media']) && (int)($_FILES['media']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                    $upload_err = (int)($_FILES['media']['error'] ?? UPLOAD_ERR_NO_FILE);
+                    if ($upload_err !== UPLOAD_ERR_OK) {
+                        if ($upload_err === UPLOAD_ERR_INI_SIZE || $upload_err === UPLOAD_ERR_FORM_SIZE) {
+                            $max_ini = function_exists('ini_get') ? (string)@ini_get('upload_max_filesize') : '';
+                            $err = 'File too large for the server to accept'
+                                . ($max_ini !== '' ? ' (server limit: ' . $max_ini . ').' : '.')
+                                . ' Compress it first — mono MP3 64kbps is about 0.5 MB per minute — then try again.';
+                        } elseif ($upload_err === UPLOAD_ERR_PARTIAL) {
+                            $err = 'Upload was interrupted. Please try uploading the file again.';
                         } else {
-                            $err = 'Could not move the uploaded media file.';
+                            $err = 'Upload failed (code ' . $upload_err . '). Please try again with a smaller file.';
+                        }
+                    } else {
+                        $ext = strtolower(pathinfo((string)$_FILES['media']['name'], PATHINFO_EXTENSION));
+                        $allowed  = $media_type === 'video' ? $video_ok : $audio_ok;
+                        $label    = $media_type === 'video' ? $video_label : $audio_label;
+                        if ($ext === '') {
+                            $err = 'That file has no extension. Rename it with an extension (' . $label . ') and try again.';
+                        } elseif (!in_array($ext, $allowed, true)) {
+                            $err = 'File type .' . $ext . ' is not supported. Use: ' . $label . '.'
+                                . ($media_type === 'audio' ? ' Tip: convert phone recordings (3GP/AMR) or voice notes to MP3 64kbps mono before uploading.' : '');
+                        } else {
+                            /* Light MIME sanity check: block scripts disguised as media
+                               without rejecting legit phone audio on odd server setups. */
+                            $mime_ok = true;
+                            if (function_exists('finfo_open')) {
+                                try {
+                                    $fi = @finfo_open(FILEINFO_MIME_TYPE);
+                                    if ($fi) {
+                                        $mime = (string)@finfo_file($fi, (string)$_FILES['media']['tmp_name']);
+                                        @finfo_close($fi);
+                                        if ($mime !== '' && preg_match('#^(text/|application/(x-php|x-sh|x-executable|x-msdownload))#i', $mime)) {
+                                            $mime_ok = false;
+                                        }
+                                    }
+                                } catch (Throwable $e) { $mime_ok = true; }
+                            }
+                            if (!$mime_ok) {
+                                $err = 'That file does not look like a real media file. Please upload a genuine audio/video file.';
+                            } else {
+                                $dest = __DIR__ . '/../uploads/islamiyya_media';
+                                if (!is_dir($dest)) @mkdir($dest, 0775, true);
+                                $fname = 'book' . $book_id . '_lesson' . $lesson_no . '_' . time() . '.' . $ext;
+                                if (move_uploaded_file($_FILES['media']['tmp_name'], $dest . '/' . $fname)) {
+                                    $media_file = $fname;
+                                } else {
+                                    $err = 'Could not move the uploaded media file. Check that uploads/islamiyya_media is writable, then try again.';
+                                }
+                            }
                         }
                     }
                 }
@@ -105,8 +148,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             }
                         }
                     } else {
-                        if ($media_file === null) {
-                            $err = 'Upload the lesson media file (audio or video).';
+                        if ($media_file === null && $err === '') {
+                            $err = 'Upload the lesson media file (' . ($media_type === 'video' ? $video_label : $audio_label) . ').';
                         } else {
                             $stmt = $conn->prepare("INSERT INTO islamiyya_lessons (book_id, lesson_no, title, media_type, media_file) VALUES (?,?,?,?,?)");
                             $stmt->bind_param("iisss", $book_id, $lesson_no, $title, $media_type, $media_file);
@@ -283,7 +326,8 @@ if ($editing_lesson && (int)$editing_lesson['book_id'] !== $book_id) $editing_le
             </div>
             <div class="form-group" style="grid-column:1/-1;">
                 <label class="form-label">Media file <?= $editing_lesson ? '<span class="text-muted">(leave empty to keep current file)</span>' : '<span class="text-danger">*</span>' ?></label>
-                <input class="form-input" type="file" name="media" accept="audio/*,video/*" <?= $editing_lesson ? '' : 'required' ?>>
+                <input class="form-input" type="file" name="media" accept="audio/*,video/*,.3gp,.amr,.opus,.oga,.aac,.flac,.wma,.m4b" <?= $editing_lesson ? '' : 'required' ?>>
+                <p class="small text-muted" style="margin:4px 0 0;">Audio: MP3, M4A, OGG, OPUS, AAC, WAV, FLAC, 3GP, AMR, WMA or WebM audio. Video: MP4, WebM or MOV.<br>For small-but-clear voice lessons use <strong>mono MP3 64kbps, 44100 Hz</strong> (~0.5 MB/min). Example: <code>ffmpeg -i input.3gp -vn -ac 1 -ar 44100 -b:a 64k lesson.mp3</code><br><span class="text-muted">Note: 3GP/AMR/WMA upload fine but some browsers cannot play them — MP3 plays everywhere.</span></p>
                 <?php if ($editing_lesson && !empty($editing_lesson['media_file'])): ?>
                     <p class="small text-muted" style="margin:4px 0 0;">Current file: <code><?= htmlspecialchars($editing_lesson['media_file'], ENT_QUOTES) ?></code></p>
                 <?php endif; ?>
