@@ -21,6 +21,7 @@ if (!$book) {
 
 $msg = '';
 $err = '';
+$post_extra = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_verify();
@@ -154,7 +155,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $stmt = $conn->prepare("INSERT INTO islamiyya_lessons (book_id, lesson_no, title, media_type, media_file) VALUES (?,?,?,?,?)");
                             $stmt->bind_param("iisss", $book_id, $lesson_no, $title, $media_type, $media_file);
                             if ($stmt->execute()) {
+                                $new_lid = (int)$conn->insert_id;
                                 $msg = 'Lesson #' . $lesson_no . ' uploaded. Now add its quiz question below.';
+                                if ($new_lid > 0) $post_extra = '&add_question=' . $new_lid . '#qform-' . $new_lid;
                             } else {
                                 @unlink(__DIR__ . '/../uploads/islamiyya_media/' . basename($media_file));
                                 $err = 'Could not save the lesson (is the lesson number already used?).';
@@ -240,7 +243,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $e = $err !== '' ? '&e=' . rawurlencode($err) : '';
     $m = $msg !== '' ? '&m=' . rawurlencode($msg) : '';
-    header('Location: islamiyya_lessons.php?book=' . $book_id . $m . $e);
+    header('Location: islamiyya_lessons.php?book=' . $book_id . $m . $e . $post_extra);
     exit;
 }
 
@@ -370,11 +373,27 @@ if ($editing_lesson && (int)$editing_lesson['book_id'] !== $book_id) $editing_le
         <span class="small text-muted"><?= $lesson['media_type'] === 'video' ? 'Video' : 'Audio' ?> · <?= count($questions) ?> quiz question(s)</span>
     </div>
 
+    <?php
+        $media_url  = '../uploads/islamiyya_media/' . rawurlencode((string)($lesson['media_file'] ?? ''));
+        $media_path = __DIR__ . '/../uploads/islamiyya_media/' . basename((string)($lesson['media_file'] ?? ''));
+        $media_exists = !empty($lesson['media_file']) && is_file($media_path);
+        $media_ext  = strtolower(pathinfo((string)($lesson['media_file'] ?? ''), PATHINFO_EXTENSION));
+        /* These upload fine but most browsers cannot play them inline. */
+        $needs_convert = in_array($media_ext, ['3gp', 'amr', 'wma'], true);
+    ?>
     <div style="margin:10px 0;">
-        <?php if ($lesson['media_type'] === 'video'): ?>
-            <video controls preload="none" style="width:100%;max-width:520px;border-radius:8px;" src="../uploads/islamiyya_media/<?= htmlspecialchars($lesson['media_file'], ENT_QUOTES) ?>"></video>
+        <?php if (!$media_exists): ?>
+            <div class="alert alert-danger" style="margin:0;"><?= ui_icon('alert', 15) ?> <span style="flex:1;">Media file missing on server: <code><?= htmlspecialchars((string)($lesson['media_file'] ?? ''), ENT_QUOTES) ?></code>. Re-upload it with Edit Lesson.</span></div>
+        <?php elseif ($lesson['media_type'] === 'video'): ?>
+            <video controls preload="none" style="width:100%;max-width:520px;border-radius:8px;" src="<?= $media_url ?>">Your browser cannot play this video. <a href="<?= $media_url ?>" download>Download it</a>.</video>
         <?php else: ?>
-            <audio controls preload="none" style="width:100%;max-width:520px;" src="../uploads/islamiyya_media/<?= htmlspecialchars($lesson['media_file'], ENT_QUOTES) ?>"></audio>
+            <audio controls preload="none" style="width:100%;max-width:520px;" src="<?= $media_url ?>">Your browser cannot play this audio. <a href="<?= $media_url ?>" download>Download it</a>.</audio>
+        <?php endif; ?>
+        <?php if ($media_exists): ?>
+            <p class="small text-muted" style="margin:6px 0 0;"><code><?= htmlspecialchars((string)$lesson['media_file'], ENT_QUOTES) ?></code> · <a href="<?= $media_url ?>" download>Download / verify file</a></p>
+            <?php if ($needs_convert): ?>
+                <div class="alert alert-warning" style="margin:8px 0 0;"><?= ui_icon('alert', 15) ?> <span style="flex:1;">.<strong><?= htmlspecialchars($media_ext, ENT_QUOTES) ?></strong> uploads fine but most browsers and phones cannot play it here. For a visible player, convert to MP3 (<code>ffmpeg -i input.<?= htmlspecialchars($media_ext, ENT_QUOTES) ?> -vn -ac 1 -ar 44100 -b:a 64k lesson.mp3</code>) then Edit Lesson → re-upload.</span></div>
+            <?php endif; ?>
         <?php endif; ?>
     </div>
 
