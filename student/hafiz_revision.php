@@ -138,7 +138,10 @@ if ($revision) {
             $stmt = $conn->prepare("SELECT week_no, status FROM hafiz_weekly_tests WHERE revision_id = ? AND status = 'passed'");
             $stmt->bind_param("i", $revision_id);
             $stmt->execute();
-            while ($tr = $stmt->get_result()->fetch_assoc()) $juz_passed[(int)$tr['week_no']] = true;
+            $tres = $stmt->get_result();
+            if ($tres) {
+                while ($tr = $tres->fetch_assoc()) $juz_passed[(int)$tr['week_no']] = true;
+            }
         } catch (Throwable $e) { /* ignore */ }
     }
 }

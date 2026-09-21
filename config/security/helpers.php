@@ -2945,8 +2945,11 @@ if (!function_exists('islamiyya_book_lessons')) {
             $stmt = $conn->prepare("SELECT * FROM islamiyya_lessons WHERE book_id = ? ORDER BY lesson_no ASC");
             $stmt->bind_param("i", $book_id);
             $stmt->execute();
+            $res = $stmt->get_result();
             $rows = [];
-            while ($r = $stmt->get_result()->fetch_assoc()) $rows[] = $r;
+            if ($res) {
+                while ($r = $res->fetch_assoc()) $rows[] = $r;
+            }
             return $rows;
         } catch (Throwable $e) {
             return [];
@@ -2980,8 +2983,11 @@ if (!function_exists('islamiyya_lesson_questions')) {
             $stmt = $conn->prepare("SELECT * FROM islamiyya_questions WHERE lesson_id = ? ORDER BY sort_order ASC, id ASC");
             $stmt->bind_param("i", $lesson_id);
             $stmt->execute();
+            $res = $stmt->get_result();
             $rows = [];
-            while ($r = $stmt->get_result()->fetch_assoc()) $rows[] = $r;
+            if ($res) {
+                while ($r = $res->fetch_assoc()) $rows[] = $r;
+            }
             return $rows;
         } catch (Throwable $e) {
             return [];

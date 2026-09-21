@@ -96,6 +96,16 @@ foreach ($books as $b) {
 }
 
 /* ------------------------------- UI -------------------------------- */
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digital Islamiyya — Student Catalog</title>
+<?= ui_css() ?>
+</head>
+<?php
 ui_page_start('student', 'islamiyya', 'Digital Islamiyya',
     'Classical books with audio/video lessons and quizzes — save your slot');
 ?>
@@ -168,7 +178,8 @@ ui_page_start('student', 'islamiyya', 'Digital Islamiyya',
 </div>
 
 <div class="grid-3">
-<?php if ($cards) foreach ($cards as $card):
+<?php if (!empty($cards)): ?>
+<?php foreach ($cards as $card):
     $b      = $card['book'];
     $open   = $card['open'];
     $have   = $card['have'];
@@ -246,3 +257,5 @@ else: ?>
 </div>
 
 <?php ui_page_end(); ?>
+</body>
+</html>

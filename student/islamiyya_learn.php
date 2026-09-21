@@ -106,7 +106,16 @@ $cover_file = trim((string)($book['cover_image'] ?? ''));
 $cover_path = ($cover_file !== '' && is_file(__DIR__ . '/../uploads/islamiyya_covers/' . basename($cover_file)))
     ? '../uploads/islamiyya_covers/' . rawurlencode(basename($cover_file))
     : '';
-
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title><?= htmlspecialchars($book['title'], ENT_QUOTES) ?> — Digital Islamiyya</title>
+<?= ui_css() ?>
+</head>
+<?php
 ui_page_start('student', 'islamiyya', $book['title'], 'Digital Islamiyya');
 ?>
 
@@ -214,3 +223,5 @@ ui_page_start('student', 'islamiyya', $book['title'], 'Digital Islamiyya');
 <?php endforeach; ?>
 
 <?php ui_page_end(); ?>
+</body>
+</html>
