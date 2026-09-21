@@ -98,12 +98,16 @@ if ($accepted && $auto_result === 'requested') {
 } elseif ($accepted && $auto_result !== '') {
     $msg .= '<br><br>No next lesson was requested automatically (blocked by an active exam/holiday, an outstanding exam, or another lesson still awaiting review).';
 }
+$wa_url = 'message_student.php?id=' . (int)$data['student_id'] . '&preset=' . ($accepted ? 'accepted' : 'rejected');
 ui_message_page(
     $accepted ? 'success' : 'danger',
     $accepted ? 'Recitation Accepted' : 'Recitation Rejected',
     $msg,
-    'teaching.php',
-    'Back to Teaching Dashboard',
-    $accepted ? 'check-circle' : 'close'
+    $wa_url,
+    'Message Student via WhatsApp',
+    $accepted ? 'check-circle' : 'close',
+    [
+        ['url' => 'teaching.php', 'label' => 'Back to Teaching Dashboard', 'class' => 'btn-ghost'],
+    ]
 );
 ?>

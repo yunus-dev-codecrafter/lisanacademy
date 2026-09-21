@@ -250,7 +250,7 @@ if (!function_exists('ui_message_page')) {
      * $type is one of: success | danger | info | warning.
      * $message may contain HTML; $title is escaped automatically.
      */
-    function ui_message_page($type, $title, $message, $back_url = '', $back_label = 'Go Back', $icon = '') {
+    function ui_message_page($type, $title, $message, $back_url = '', $back_label = 'Go Back', $icon = '', $extra_buttons = []) {
         $types = ['success', 'danger', 'info', 'warning'];
         if (!in_array($type, $types, true)) $type = 'info';
 
@@ -273,6 +273,10 @@ if (!function_exists('ui_message_page')) {
         $back = '';
         if ($back_url !== '') {
             $back = '<a class="btn btn-block mt-2" href="' . htmlspecialchars($back_url) . '">' . htmlspecialchars($back_label) . '</a>';
+        }
+        foreach ($extra_buttons as $btn) {
+            $cls = trim('btn btn-block mt-2 ' . ($btn['class'] ?? ''));
+            $back .= '<a class="' . htmlspecialchars($cls) . '" href="' . htmlspecialchars($btn['url'] ?? '#') . '">' . htmlspecialchars($btn['label'] ?? 'Continue') . '</a>';
         }
 
         echo '<!DOCTYPE html>' . "\n";

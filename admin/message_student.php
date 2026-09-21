@@ -170,6 +170,11 @@ if ($recitation && $recitation['status'] === 'rejected') {
     $default_key = 'accepted';
 }
 
+$preset_override = $_GET['preset'] ?? '';
+if (isset($presets[$preset_override])) {
+    $default_key = $preset_override;
+}
+
 /* Inject the student's name (and, for the idle preset, their idle-day count)
    into every preset — used server-side for the first render and passed to JS
    for switching. */
