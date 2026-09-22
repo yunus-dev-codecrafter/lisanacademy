@@ -33,7 +33,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email    = strtolower(trim($_POST['email'] ?? ''));
         $pass     = $_POST['password'] ?? '';
         $phone    = trim($_POST['phone'] ?? '');
-        $hafiz    = (int)($_POST['hafiz'] ?? 0);
+        $designation = (int)($_POST['designation'] ?? ($_POST['hafiz'] ?? 0));
+        $hafiz = $designation === 2 ? 1 : 0;
+        $memorizing = $designation === 1 ? 1 : 0;
 
         if ($name === '' || $email === '' || $pass === '') {
             redirect('applications.php?error=' . urlencode('Name, email and password are required to activate.'));
@@ -52,8 +54,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $hashed = password_hash($pass, PASSWORD_DEFAULT);
         $has_phone = db_column_exists($conn, 'users', 'phone');
         $has_hafiz = db_column_exists($conn, 'users', 'hafiz');
+        $has_mem = db_column_exists($conn, 'users', 'memorizing');
 
-        if ($has_phone && $has_hafiz && $phone !== '') {
+        if ($has_phone && $has_hafiz && $has_mem) {
+            $stmt = $conn->prepare("INSERT INTO users (name, email, phone, password, role, device_type, suspended, blocked, hafiz, memorizing) VALUES (?, ?, ?, ?, 'student', 'iphone', 0, 0, ?, ?)");
+            $stmt->bind_param("ssssii", $name, $email, $phone, $hashed, $hafiz, $memorizing);
+        } elseif ($has_phone && $has_hafiz) {
             $stmt = $conn->prepare("INSERT INTO users (name, email, phone, password, role, device_type, suspended, blocked, hafiz) VALUES (?, ?, ?, ?, 'student', 'iphone', 0, 0, ?)");
             $stmt->bind_param("ssssi", $name, $email, $phone, $hashed, $hafiz);
         } elseif ($has_phone) {
@@ -77,6 +83,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $ins->bind_param("iss", $new_student_id, $now, $now);
                 $ins->execute();
             } catch (Throwable $e) { /* ignore */ }
+        }
+
+        /* If Memorizer, initialize the memorization state */
+        if ($memorizing === 1 && $new_student_id > 0) {
+            mem_start($conn, $new_student_id, 1);
         }
 
         /* Referral auto-link: match pending friend invites by phone. */
@@ -316,11 +327,14 @@ $error     = isset($_GET['error']) ? trim($_GET['error']) : '';
             <?php if (db_column_exists($conn, 'users', 'hafiz')): ?>
             <div class="form-group">
                 <label class="form-label" for="act_hafiz">Student Type</label>
-                <select class="form-select" id="act_hafiz" name="hafiz">
+                <select class="form-select" id="act_hafiz" name="designation">
                     <option value="0" selected>Non-Hafiz (Learner)</option>
-                    <option value="1">Hafiz (Revision Mode)</option>
+                    <?php if (db_column_exists($conn, 'users', 'memorizing')): ?>
+                    <option value="1">Memorizer (Qur'an Memorization)</option>
+                    <?php endif; ?>
+                    <option value="2">Hafiz (Revision Mode)</option>
                 </select>
-                <small class="text-muted" style="font-size:.78rem;">Hafiz students revise from memory instead of learning new material.</small>
+                <small class="text-muted" style="font-size:.78rem;">Memorizers memorize 604 pages day-by-day; Hafiz students revise from memory.</small>
             </div>
             <?php endif; ?>
             <button class="btn btn-gold btn-lg btn-block" type="submit"><?= ui_icon('user', 17) ?> Create Student Account</button>

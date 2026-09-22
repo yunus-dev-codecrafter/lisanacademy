@@ -8,6 +8,9 @@ $student_id = (int)$_SESSION['user_id'];
 
 /* Guard: must be Hafiz */
 if (!student_is_hafiz($conn, $student_id)) {
+    if (student_is_memorizing($conn, $student_id)) {
+        redirect('quran_memorization.php');
+    }
     redirect('dashboard.php');
 }
 

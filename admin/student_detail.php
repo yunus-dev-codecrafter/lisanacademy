@@ -9,7 +9,7 @@ if ($student_id <= 0) exit('Invalid student ID');
 
 /* ================= STUDENT ================= */
 $stmt = $conn->prepare("
-  SELECT id, name, email, suspended, blocked" . (db_column_exists($conn, 'users', 'hafiz') ? ", hafiz" : "") . "
+  SELECT id, name, email, suspended, blocked" . (db_column_exists($conn, 'users', 'hafiz') ? ", hafiz" : "") . (db_column_exists($conn, 'users', 'memorizing') ? ", memorizing" : "") . "
   FROM users
   WHERE id=? AND role='student'
 ");
@@ -19,6 +19,7 @@ $student = $stmt->get_result()->fetch_assoc();
 if (!$student) exit('Student not found');
 
 $is_hafiz = db_column_exists($conn, 'users', 'hafiz') && (int)($student['hafiz'] ?? 0) === 1;
+$is_memorizing = db_column_exists($conn, 'users', 'memorizing') && (int)($student['memorizing'] ?? 0) === 1;
 
 /* ========== ACTIVENESS ========== */
 $active = $conn->query("
@@ -59,12 +60,54 @@ $surahs = $conn->query("SELECT id, name_en FROM surahs ORDER BY id");
     <?php if ($is_hafiz): ?>
         <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;">Hafiz</span>
     <?php endif; ?>
+    <?php if ($is_memorizing): ?>
+        <span class="badge" style="background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;">Memorizer</span>
+    <?php endif; ?>
     <span class="badge badge-green">Activeness: <?=$active?> lesson requests</span>
 
     <hr style="border:none;border-top:1px solid var(--border);margin:18px 0;">
 
-    <!-- Hafiz Designation -->
-    <?php if (db_column_exists($conn, 'users', 'hafiz')): ?>
+    <!-- Designation (3-way: Learner / Memorizer / Hafiz) -->
+    <?php if (db_column_exists($conn, 'users', 'hafiz') && db_column_exists($conn, 'users', 'memorizing')): ?>
+    <div class="form-group">
+        <label class="form-label">Student Type Designation</label>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <?php if (! $is_hafiz): ?>
+                <form method="POST" action="set_memorizing.php" style="flex:1;min-width:150px;" onsubmit="return confirm('Designate this student as a Memorizer? Hafiz designation (if any) will be removed and they will follow the 775-day Qur&#8217;an memorization flow.');">
+                    <input type="hidden" name="student_id" value="<?=$student_id?>">
+                    <input type="hidden" name="action" value="set">
+                    <?= csrf_field() ?>
+                    <button class="btn btn-block" style="background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;" type="submit"><?= ui_icon('star', 15) ?> Designate as Memorizer</button>
+                </form>
+            <?php endif; ?>
+            <?php if (! $is_memorizing): ?>
+                <form method="POST" action="set_hafiz.php" style="flex:1;min-width:150px;" onsubmit="return confirm('Designate this student as Hafiz? Memorization (if any) will be paused and they will follow the revision flow.');">
+                    <input type="hidden" name="student_id" value="<?=$student_id?>">
+                    <input type="hidden" name="action" value="set">
+                    <?= csrf_field() ?>
+                    <button class="btn btn-block" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;" type="submit"><?= ui_icon('book', 15) ?> Designate as Hafiz</button>
+                </form>
+            <?php endif; ?>
+            <?php if ($is_hafiz): ?>
+                <form method="POST" action="set_hafiz.php" style="flex:1;min-width:150px;" onsubmit="return confirm('Remove Hafiz designation? This student will revert to the standard learner flow.');">
+                    <input type="hidden" name="student_id" value="<?=$student_id?>">
+                    <input type="hidden" name="action" value="unset">
+                    <?= csrf_field() ?>
+                    <button class="btn btn-block btn-danger" type="submit"><?= ui_icon('close', 15) ?> Remove Hafiz Designation</button>
+                </form>
+            <?php endif; ?>
+            <?php if ($is_memorizing): ?>
+                <form method="POST" action="set_memorizing.php" style="flex:1;min-width:150px;" onsubmit="return confirm('Remove Memorizer designation? Their memorization progress is preserved (paused) in case you change your mind.');">
+                    <input type="hidden" name="student_id" value="<?=$student_id?>">
+                    <input type="hidden" name="action" value="unset">
+                    <?= csrf_field() ?>
+                    <button class="btn btn-block btn-danger" type="submit"><?= ui_icon('close', 15) ?> Remove Memorizer Designation</button>
+                </form>
+            <?php endif; ?>
+        </div>
+        <p class="small text-muted" style="margin:6px 0 0;">Learners memorize surah-by-surah; Memorizers memorize 604 pages day-by-day; Hafiz students revise from memory. Designations are mutually exclusive.</p>
+    </div>
+    <?php elseif (db_column_exists($conn, 'users', 'hafiz')): ?>
     <div class="form-group">
         <label class="form-label">Student Type Designation</label>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
@@ -124,6 +167,48 @@ $surahs = $conn->query("SELECT id, name_en FROM surahs ORDER BY id");
             </div>
         <?php else: ?>
             <p class="small text-muted" style="margin:0;">No active revision cycle. The student needs to start one from their dashboard.</p>
+        <?php endif; ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- Memorization Progress -->
+    <?php if ($is_memorizing && db_table_exists($conn, 'quran_memorization')): ?>
+    <?php
+        mem_self_heal($conn, $student_id);
+        $mem = mem_progress_summary($conn, $student_id);
+    ?>
+    <div class="form-group">
+        <label class="form-label">Memorization Progress</label>
+        <?php if ($mem): ?>
+            <?php
+            $m_state = $mem['state'];
+            $m_task = $mem['task'];
+            $status_label = $mem['status'] === 'completed' ? 'Completed'
+                          : ($mem['status'] === 'paused' ? 'Paused' : 'Active');
+            ?>
+            <div class="panel" style="margin:0;">
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+                    <p class="small" style="margin:0;"><strong><?= $mem['pages_memorized'] ?> / <?= $mem['total_pages'] ?> pages</strong> (<?= $mem['pct'] ?>%)</p>
+                    <span class="badge <?= $mem['status'] === 'completed' ? 'badge-green' : ($mem['status'] === 'paused' ? 'badge' : 'badge-gold') ?>" style="<?= $mem['status'] === 'active' ? 'background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;' : '' ?>"><?= $status_label ?></span>
+                </div>
+                <div style="height:8px;border-radius:99px;background:var(--border);overflow:hidden;margin-bottom:8px;">
+                    <div style="height:100%;width:<?= $mem['pct'] ?>%;background:linear-gradient(90deg,#d97706,#f59e0b);"></div>
+                </div>
+                <p class="small" style="margin:0 0 6px;">Block <?= $mem['current_block'] ?> · 100-page group <?= $mem['block100'] ?> · Day <?= $mem['days_completed'] ?>/<?= $mem['days_total'] ?></p>
+                <?php if ($mem['milestone_text'] !== ''): ?>
+                    <p class="small" style="margin:0 0 6px;color:var(--gold-deep);"><?= ui_icon('gem', 14) ?> <?= htmlspecialchars($mem['milestone_text']) ?></p>
+                <?php endif; ?>
+                <?php if ($mem['status'] === 'completed'): ?>
+                    <p class="small" style="margin:0;"><strong><?= ui_icon('check-circle', 14) ?> The entire Qur'an has been memorized. Ma sha Allah!</strong></p>
+                <?php else: ?>
+                    <p class="small text-muted" style="margin:0;">
+                        Today: <strong><?= htmlspecialchars($m_task['label']) ?></strong>
+                        (<?= $m_task['task_type'] === 'celebration' ? 'Celebration' : ($m_task['task_type'] === 'memorization' ? 'Memorization Day' : 'Muraja&#8217;ah Day') ?>)
+                    </p>
+                <?php endif; ?>
+            </div>
+        <?php else: ?>
+            <p class="small text-muted" style="margin:0;">No memorization record yet. Designation is active but the journey has not started.</p>
         <?php endif; ?>
     </div>
     <?php endif; ?>

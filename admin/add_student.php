@@ -44,12 +44,22 @@ require_role('admin');
                 <input class="form-input" type="password" id="password" name="password" required>
             </div>
 
-            <?php if (db_column_exists($conn, 'users', 'hafiz')): ?>
+            <?php if (db_column_exists($conn, 'users', 'hafiz') && db_column_exists($conn, 'users', 'memorizing')): ?>
             <div class="form-group">
-                <label class="form-label" for="hafiz">Student Type</label>
-                <select class="form-select" id="hafiz" name="hafiz">
+                <label class="form-label" for="designation">Student Type</label>
+                <select class="form-select" id="designation" name="designation">
                     <option value="0" selected>Non-Hafiz (Learner)</option>
-                    <option value="1">Hafiz (Revision Mode)</option>
+                    <option value="1">Memorizer (Qur'an Memorization)</option>
+                    <option value="2">Hafiz (Revision Mode)</option>
+                </select>
+                <span class="small text-muted">Memorizers memorize 604 pages day-by-day; Hafiz students revise from memory instead of learning new material.</span>
+            </div>
+            <?php elseif (db_column_exists($conn, 'users', 'hafiz')): ?>
+            <div class="form-group">
+                <label class="form-label" for="designation">Student Type</label>
+                <select class="form-select" id="designation" name="designation">
+                    <option value="0" selected>Non-Hafiz (Learner)</option>
+                    <option value="2">Hafiz (Revision Mode)</option>
                 </select>
                 <span class="small text-muted">Hafiz students revise from memory instead of learning new material.</span>
             </div>

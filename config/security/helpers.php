@@ -637,6 +637,8 @@ if (!function_exists('student_has_graduated')) {
      * graduates and to trigger graduation / account lifecycle actions.
      */
     function student_has_graduated($conn, $student_id) {
+        if (student_is_hafiz($conn, $student_id)) return false;
+        if (student_is_memorizing($conn, $student_id)) return false;
         $student_id = (int)$student_id;
         try {
             $total = (int)$conn->query("SELECT COUNT(*) c FROM surahs")->fetch_assoc()['c'];
@@ -660,6 +662,7 @@ if (!function_exists('mark_graduated_if_due')) {
      * is missing (returns false without crashing).
      */
     function mark_graduated_if_due($conn, $student_id) {
+        if (student_is_memorizing($conn, $student_id)) return false;
         if (!student_has_graduated($conn, $student_id)) return false;
         $student_id = (int)$student_id;
         try {
@@ -683,10 +686,14 @@ if (!function_exists('purge_graduated_accounts')) {
      */
     function purge_graduated_accounts($conn) {
         try {
+            $extra = '';
+            if (db_column_exists($conn, 'users', 'hafiz')) $extra .= ' AND hafiz = 0';
+            if (db_column_exists($conn, 'users', 'memorizing')) $extra .= ' AND memorizing = 0';
             $res = $conn->query("
                 SELECT id FROM users
                 WHERE role = 'student' AND graduated_at IS NOT NULL
                   AND graduated_at < NOW() - INTERVAL 7 DAY
+                  $extra
             ");
             $ids = [];
             while ($r = $res->fetch_assoc()) $ids[] = (int)$r['id'];
@@ -718,6 +725,14 @@ if (!function_exists('purge_graduated_accounts')) {
             foreach (['student_learning', 'student_recitation', 'exam_answers', 'exam_attempts',
                       'certificates', 'announcement_reads', 'student_invites',
                       'admin_audio', 'donations', 'suggestions', 'feedback'] as $t) {
+                try {
+                    $conn->query("DELETE FROM `$t` WHERE student_id IN ($ids_str)");
+                } catch (Throwable $e) { /* missing table/column — ignore */ }
+            }
+
+            /* Also clean up memorization + hafiz tables */
+            foreach (['quran_memorization', 'quran_memorization_log', 'quran_murajaah_sessions',
+                      'hafiz_sessions', 'hafiz_weekly_log', 'hafiz_revision'] as $t) {
                 try {
                     $conn->query("DELETE FROM `$t` WHERE student_id IN ($ids_str)");
                 } catch (Throwable $e) { /* missing table/column — ignore */ }
@@ -931,7 +946,14 @@ if (!function_exists('teaching_pending_count')) {
                 "SELECT COUNT(*) c FROM live_recitation_requests WHERE status = 'pending'"
             )->fetch_assoc()['c'];
 
-            return $subs + $lessons + $live;
+            $murajaah = 0;
+            if (db_table_exists($conn, 'quran_murajaah_sessions')) {
+                $murajaah = (int)$conn->query(
+                    "SELECT COUNT(*) c FROM quran_murajaah_sessions WHERE status = 'pending'"
+                )->fetch_assoc()['c'];
+            }
+
+            return $subs + $lessons + $live + $murajaah;
         } catch (Throwable $e) {
             return 0;
         }
@@ -2639,6 +2661,7 @@ if (!function_exists('student_has_graduated')) {
      */
     function student_has_graduated($conn, $student_id) {
         if (student_is_hafiz($conn, $student_id)) return false;
+        if (student_is_memorizing($conn, $student_id)) return false;
         $student_id = (int)$student_id;
         try {
             $total = (int)$conn->query("SELECT COUNT(*) c FROM surahs")->fetch_assoc()['c'];
@@ -2662,6 +2685,7 @@ if (!function_exists('mark_graduated_if_due')) {
      */
     function mark_graduated_if_due($conn, $student_id) {
         if (student_is_hafiz($conn, $student_id)) return false;
+        if (student_is_memorizing($conn, $student_id)) return false;
         if (!student_has_graduated($conn, $student_id)) return false;
         $student_id = (int)$student_id;
         try {
@@ -2683,11 +2707,13 @@ if (!function_exists('purge_graduated_accounts')) {
     function purge_graduated_accounts($conn) {
         try {
             $hafiz_filter = db_column_exists($conn, 'users', 'hafiz') ? 'AND hafiz = 0' : '';
+            $mem_filter = db_column_exists($conn, 'users', 'memorizing') ? 'AND memorizing = 0' : '';
             $res = $conn->query("
                 SELECT id FROM users
                 WHERE role = 'student' AND graduated_at IS NOT NULL
                   AND graduated_at < NOW() - INTERVAL 7 DAY
                   $hafiz_filter
+                  $mem_filter
             ");
             $ids = [];
             while ($r = $res->fetch_assoc()) $ids[] = (int)$r['id'];
@@ -2721,8 +2747,9 @@ if (!function_exists('purge_graduated_accounts')) {
                     $conn->query("DELETE FROM `$t` WHERE student_id IN ($ids_str)");
                 } catch (Throwable $e) { /* ignore */ }
             }
-            // Also clean up hafiz tables
-            foreach (['hafiz_sessions', 'hafiz_weekly_log', 'hafiz_revision'] as $t) {
+            // Also clean up memorization + hafiz tables
+            foreach (['quran_memorization', 'quran_memorization_log', 'quran_murajaah_sessions',
+                      'hafiz_sessions', 'hafiz_weekly_log', 'hafiz_revision'] as $t) {
                 try {
                     $conn->query("DELETE FROM `$t` WHERE student_id IN ($ids_str)");
                 } catch (Throwable $e) { /* ignore */ }
@@ -3233,6 +3260,906 @@ if (!function_exists('islamiyya_remove_interest')) {
             return $stmt->execute();
         } catch (Throwable $e) {
             return false;
+        }
+    }
+}
+
+/* =====================================================
+   QUR'AN MEMORIZATION & MURAJA'AH ENGINE
+   ===================================================== */
+
+if (!function_exists('student_is_memorizing')) {
+    /**
+     * True when the student has the Qur'an Memorization flag set.
+     * Safe if the column is missing.
+     */
+    function student_is_memorizing($conn, $student_id) {
+        $student_id = (int)$student_id;
+        if (!db_column_exists($conn, 'users', 'memorizing')) return false;
+        try {
+            $stmt = $conn->prepare("SELECT memorizing FROM users WHERE id = ? LIMIT 1");
+            $stmt->bind_param("i", $student_id);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            return $r ? ((int)$r['memorizing'] === 1) : false;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('mem_engine_installed')) {
+    /** True when every memorization table + the users.memorizing column exist. */
+    function mem_engine_installed($conn) {
+        return db_table_exists($conn, 'quran_memorization')
+            && db_table_exists($conn, 'quran_memorization_log')
+            && db_table_exists($conn, 'quran_murajaah_sessions')
+            && db_column_exists($conn, 'users', 'memorizing');
+    }
+}
+
+if (!function_exists('mem_total_pages')) {
+    /** The 604-page Medina Mushaf boundary. */
+    function mem_total_pages() { return 604; }
+}
+
+if (!function_exists('mem_block_meta')) {
+    /**
+     * [start, end, pages, length] for memorization blocks 1-24.
+     * Blocks 1-11: 25 pages each (1..275). Block 12: 29 pages (276..304, ends
+     * at Surah Al-Kahf). Blocks 13-24: 25 pages each (305..604). 'length' is
+     * the number of intra-block days (30 for 25-page blocks, 34 for block 12).
+     */
+    function mem_block_meta($block_no) {
+        static $meta = null;
+        if ($meta === null) {
+            $meta = [];
+            for ($b = 1; $b <= 11; $b++) {
+                $s = ($b - 1) * 25 + 1;
+                $meta[$b] = ['start' => $s, 'end' => $s + 24, 'pages' => 25];
+            }
+            $meta[12] = ['start' => 276, 'end' => 304, 'pages' => 29];
+            for ($b = 13; $b <= 24; $b++) {
+                $s = 305 + ($b - 13) * 25;
+                $meta[$b] = ['start' => $s, 'end' => $s + 24, 'pages' => 25];
+            }
+            foreach ($meta as $b => $m) $meta[$b]['length'] = $m['pages'] + 5;
+        }
+        return isset($meta[$block_no]) ? $meta[$block_no] : null;
+    }
+}
+
+if (!function_exists('mem_normal25_day')) {
+    /**
+     * Task for day d (1-based) within a normal memorization block starting at
+     * page S with N pages. Returns ['type','start','end'].
+     * Rhythm: 6 new pages, Muraja'ah of those 6, repeat ×4; then the remaining
+     * (N-24) tail pages one per day; then a Muraja'ah of the whole block.
+     */
+    function mem_normal25_day($S, $N, $d) {
+        if ($d >= 1 && $d <= 6)   return ['type' => 'memorization', 'start' => $S + $d - 1, 'end' => $S + $d - 1];
+        if ($d == 7)              return ['type' => 'murajaah',     'start' => $S,          'end' => $S + 5];
+        if ($d >= 8 && $d <= 13)  return ['type' => 'memorization', 'start' => $S + $d - 2, 'end' => $S + $d - 2];
+        if ($d == 14)             return ['type' => 'murajaah',     'start' => $S + 6,      'end' => $S + 11];
+        if ($d >= 15 && $d <= 20) return ['type' => 'memorization', 'start' => $S + $d - 3, 'end' => $S + $d - 3];
+        if ($d == 21)             return ['type' => 'murajaah',     'start' => $S + 12,     'end' => $S + 17];
+        if ($d >= 22 && $d <= 27) return ['type' => 'memorization', 'start' => $S + $d - 4, 'end' => $S + $d - 4];
+        if ($d == 28)             return ['type' => 'murajaah',     'start' => $S + 18,     'end' => $S + 23];
+        $rem = $N - 24;
+        if ($d >= 29 && $d <= 28 + $rem) return ['type' => 'memorization', 'start' => $S + $d - 5, 'end' => $S + $d - 5];
+        return ['type' => 'murajaah', 'start' => $S, 'end' => $S + $N - 1];
+    }
+}
+
+if (!function_exists('mem_schedule_slots')) {
+    /**
+     * Build the full 775-day schedule. Index 1 = first memorization day.
+     * Each slot: ['day','seg','seg_day','block','block100','task_type',
+     *   'start','end','sessions' (list of ['session','start','end']),
+     *   'celebrating' => ''|'half'|'complete'].
+     * Deterministic and DB-independent: 604 memorization days + 169 Muraja'ah
+     * days + 2 celebration days = 775.
+     */
+    function mem_schedule_slots() {
+        static $slots = null;
+        if ($slots !== null) return $slots;
+        $slots = [];
+        $day = 0;
+
+        $push = function (array $slot) use (&$slots, &$day) {
+            $day++;
+            $slot['day'] = $day;
+            $slots[$day] = $slot;
+        };
+
+        $rev100group = function ($A) {
+            if ($A >= 305) return intdiv($A - 305, 100) + 4;
+            return intdiv($A - 1, 100) + 1;
+        };
+
+        $push_rev100 = function ($A) use (&$push, $rev100group) {
+            $B = $A + 99;
+            $m = [[$A, $A + 24], [$A + 25, $A + 49], [$A + 50, $A + 74], [$A + 75, $B]];
+            $base = ['seg' => 'rev100', 'block' => 0, 'block100' => $rev100group($A), 'task_type' => 'murajaah', 'celebrating' => ''];
+            for ($k = 0; $k < 4; $k++) {
+                $push($base + ['seg_day' => $k + 1, 'start' => $m[$k][0], 'end' => $m[$k][1],
+                    'sessions' => [['session' => 'full', 'start' => $m[$k][0], 'end' => $m[$k][1]]]]);
+            }
+            $push($base + ['seg_day' => 5, 'start' => $m[0][0], 'end' => $m[1][1],
+                'sessions' => [
+                    ['session' => 'morning', 'start' => $m[0][0], 'end' => $m[0][1]],
+                    ['session' => 'evening', 'start' => $m[1][0], 'end' => $m[1][1]],
+                ]]);
+            $push($base + ['seg_day' => 6, 'start' => $m[2][0], 'end' => $m[3][1],
+                'sessions' => [
+                    ['session' => 'morning', 'start' => $m[2][0], 'end' => $m[2][1]],
+                    ['session' => 'evening', 'start' => $m[3][0], 'end' => $m[3][1]],
+                ]]);
+            $push($base + ['seg_day' => 7, 'start' => $A, 'end' => $B,
+                'sessions' => [['session' => 'full', 'start' => $A, 'end' => $B]]]);
+        };
+
+        $push_revhalf = function () use (&$push) {
+            $r = [[201, 225], [226, 250], [251, 275], [276, 304]];
+            $base = ['seg' => 'revhalf', 'block' => 0, 'block100' => 3, 'task_type' => 'murajaah', 'celebrating' => ''];
+            for ($k = 0; $k < 4; $k++) {
+                $push($base + ['seg_day' => $k + 1, 'start' => $r[$k][0], 'end' => $r[$k][1],
+                    'sessions' => [['session' => 'full', 'start' => $r[$k][0], 'end' => $r[$k][1]]]]);
+            }
+            $push($base + ['seg_day' => 5, 'start' => 201, 'end' => 250,
+                'sessions' => [
+                    ['session' => 'morning', 'start' => 201, 'end' => 225],
+                    ['session' => 'evening', 'start' => 226, 'end' => 250],
+                ]]);
+            $push($base + ['seg_day' => 6, 'start' => 251, 'end' => 304,
+                'sessions' => [
+                    ['session' => 'morning', 'start' => 251, 'end' => 275],
+                    ['session' => 'evening', 'start' => 276, 'end' => 304],
+                ]]);
+            $push($base + ['seg_day' => 7, 'start' => 201, 'end' => 304,
+                'sessions' => [['session' => 'full', 'start' => 201, 'end' => 304]]]);
+            $push(['seg' => 'revhalf', 'seg_day' => 8, 'block' => 0, 'block100' => 3,
+                'task_type' => 'celebration', 'start' => 0, 'end' => 0, 'sessions' => [],
+                'celebrating' => 'half']);
+        };
+
+        $push_revfinal = function () use (&$push) {
+            $base = ['seg' => 'revfinal', 'block' => 0, 'block100' => 6, 'task_type' => 'murajaah', 'celebrating' => ''];
+            for ($k = 0; $k < 6; $k++) {
+                $s = 305 + $k * 50;
+                $e = $k == 5 ? 604 : $s + 49;
+                $push($base + ['seg_day' => $k + 1, 'start' => $s, 'end' => $e,
+                    'sessions' => [['session' => 'full', 'start' => $s, 'end' => $e]]]);
+            }
+            $push($base + ['seg_day' => 7, 'start' => 305, 'end' => 604,
+                'sessions' => [['session' => 'full', 'start' => 305, 'end' => 604]]]);
+            $push(['seg' => 'revfinal', 'seg_day' => 8, 'block' => 0, 'block100' => 6,
+                'task_type' => 'celebration', 'start' => 0, 'end' => 0, 'sessions' => [],
+                'celebrating' => 'complete']);
+        };
+
+        for ($b = 1; $b <= 24; $b++) {
+            $meta = mem_block_meta($b);
+            $S = $meta['start'];
+            $N = $meta['pages'];
+            for ($d = 1; $d <= $meta['length']; $d++) {
+                $t = mem_normal25_day($S, $N, $d);
+                $session = ['session' => 'full', 'start' => $t['start'], 'end' => $t['end']];
+                $push([
+                    'seg' => 'normal25', 'seg_day' => $d, 'block' => $b,
+                    'block100' => (int)ceil($b / 4), 'task_type' => $t['type'],
+                    'start' => $session['start'], 'end' => $session['end'],
+                    'sessions' => [$session], 'celebrating' => '',
+                ]);
+            }
+            if ($b == 4)  $push_rev100(1);
+            if ($b == 8)  $push_rev100(101);
+            if ($b == 12) $push_revhalf();
+            if ($b == 16) $push_rev100(305);
+            if ($b == 20) $push_rev100(405);
+            if ($b == 24) $push_rev100(505);
+        }
+        $push_revfinal();
+
+        return $slots;
+    }
+}
+
+if (!function_exists('mem_total_days')) {
+    /** Total scheduled days (775) — also the final completion day index. */
+    function mem_total_days() {
+        return count(mem_schedule_slots());
+    }
+}
+
+if (!function_exists('mem_done_slot')) {
+    /** Terminal slot used after the 775th day. */
+    function mem_done_slot() {
+        static $done = null;
+        if ($done === null) {
+            $done = ['seg' => 'done', 'seg_day' => 1, 'block' => 0, 'block100' => 6,
+                'task_type' => 'none', 'start' => 0, 'end' => 0, 'sessions' => [],
+                'celebrating' => '', 'day' => mem_total_days() + 1];
+        }
+        return $done;
+    }
+}
+
+if (!function_exists('mem_slot')) {
+    /** Slot for a 1-based day number; past the schedule returns the done slot. */
+    function mem_slot($day) {
+        $slots = mem_schedule_slots();
+        return isset($slots[$day]) ? $slots[$day] : mem_done_slot();
+    }
+}
+
+if (!function_exists('mem_get_state')) {
+    /** The quran_memorization row for this student, or null. */
+    function mem_get_state($conn, $student_id) {
+        $student_id = (int)$student_id;
+        if (!db_table_exists($conn, 'quran_memorization')) return null;
+        try {
+            $stmt = $conn->prepare("SELECT * FROM quran_memorization WHERE student_id = ? LIMIT 1");
+            $stmt->bind_param("i", $student_id);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            return $r ?: null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('mem_has_active')) {
+    /** True when the student has an active (unpaused, unfinished) journey. */
+    function mem_has_active($conn, $student_id) {
+        $st = mem_get_state($conn, (int)$student_id);
+        return $st && $st['status'] === 'active';
+    }
+}
+
+if (!function_exists('mem_start')) {
+    /** Create (or re-activate) the memorization state row. Never clobbers progress. */
+    function mem_start($conn, $student_id, $pace = 1) {
+        $student_id = (int)$student_id;
+        $pace = max(1, (int)$pace);
+        if (!mem_engine_installed($conn)) return ['ok' => false, 'new' => false];
+        try {
+            $existing = mem_get_state($conn, $student_id);
+            if ($existing) {
+                $stmt = $conn->prepare("UPDATE quran_memorization SET status = 'active', pace = ?, updated_at = NOW() WHERE student_id = ?");
+                $stmt->bind_param("ii", $pace, $student_id);
+                $stmt->execute();
+                return ['ok' => true, 'new' => false];
+            }
+            $stmt = $conn->prepare("INSERT INTO quran_memorization
+                (student_id, pace, current_page, pages_memorized, day_count, segment_type, segment_day,
+                 current_session, task_type, current_month, current_100_block, milestone, status, started_at, updated_at)
+                VALUES (?, ?, 1, 0, 0, 'normal25', 1, 'full', 'memorization', 1, 1, 'none', 'active', NOW(), NOW())");
+            $stmt->bind_param("ii", $student_id, $pace);
+            $stmt->execute();
+            return ['ok' => true, 'new' => true];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'new' => false];
+        }
+    }
+}
+
+if (!function_exists('mem_apply_slot')) {
+    /**
+     * Persist the positional fields of a slot into the state row.
+     * $extra['day_count'] triggers a day advance (current_session moves to the
+     * next slot's first session); otherwise the stored session is preserved.
+     * $extra may also carry pages_memorized/current_page/status/milestone.
+     */
+    function mem_apply_slot($conn, $student_id, array $slot, array $extra = []) {
+        $student_id = (int)$student_id;
+        if (!db_table_exists($conn, 'quran_memorization')) return false;
+        $cur = mem_get_state($conn, $student_id);
+        if (!$cur) return false;
+
+        $advance = array_key_exists('day_count', $extra);
+        $day_count = $advance ? (int)$extra['day_count'] : (int)$cur['day_count'];
+        $pages = array_key_exists('pages_memorized', $extra) ? (int)$extra['pages_memorized'] : (int)$cur['pages_memorized'];
+        $cur_page = array_key_exists('current_page', $extra) ? (int)$extra['current_page'] : $pages + 1;
+
+        $sess = $advance
+            ? (isset($slot['sessions'][0]['session']) ? $slot['sessions'][0]['session'] : 'full')
+            : (string)$cur['current_session'];
+
+        $milestone = '';
+        if (!empty($slot['celebrating'])) {
+            $milestone = $slot['celebrating'] === 'half' ? 'half' : 'complete';
+        } elseif ($slot['seg'] === 'rev100' && (int)$slot['seg_day'] == 1) {
+            $milestone = '100';
+        } elseif ((string)$cur['milestone'] !== '') {
+            $milestone = (string)$cur['milestone'];
+        }
+        if (isset($extra['milestone']) && $extra['milestone'] !== '') $milestone = $extra['milestone'];
+
+        $status = isset($extra['status']) ? $extra['status'] : (string)$cur['status'];
+        $completed_at = $status === 'completed' ? date('Y-m-d H:i:s') : null;
+
+        $seg = (string)$slot['seg'];
+        $seg_day = (int)$slot['seg_day'];
+        $task_type = (string)$slot['task_type'];
+        $month = (int)$slot['block'];
+        $b100 = (int)$slot['block100'];
+
+        try {
+            $stmt = $conn->prepare("UPDATE quran_memorization SET
+                segment_type = ?, segment_day = ?, current_session = ?, task_type = ?,
+                current_month = ?, current_100_block = ?, milestone = ?, day_count = ?,
+                pages_memorized = ?, current_page = ?, status = ?, completed_at = ?, updated_at = NOW()
+                WHERE student_id = ?");
+            $stmt->bind_param("sissiisiiissi", $seg, $seg_day, $sess, $task_type, $month, $b100,
+                $milestone, $day_count, $pages, $cur_page, $status, $completed_at, $student_id);
+            return $stmt->execute();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('mem_compute_task')) {
+    /**
+     * Descriptor of today's task for the in-progress day (state.day_count + 1).
+     * Honors current_session on split (morning/evening) Muraja'ah days.
+     */
+    function mem_compute_task($conn, array $state) {
+        $day = (int)$state['day_count'] + 1;
+        $slot = mem_slot($day);
+        $sessions = $slot['sessions'];
+        $cur = null;
+        if ($sessions) {
+            $cur = $sessions[0];
+            $cs = (string)($state['current_session'] ?? 'full');
+            foreach ($sessions as $ss) {
+                if ($ss['session'] === $cs) { $cur = $ss; break; }
+            }
+        }
+        $pages = 0;
+        if ($cur) $pages = (int)$cur['end'] - (int)$cur['start'] + 1;
+        $sp = $cur ? (int)$cur['start'] : 0;
+        $ep = $cur ? (int)$cur['end'] : 0;
+        return [
+            'ok' => true,
+            'day_number' => $day,
+            'days_completed' => (int)$state['day_count'],
+            'seg' => $slot['seg'],
+            'seg_day' => (int)$slot['seg_day'],
+            'block' => (int)$slot['block'],
+            'block100' => (int)$slot['block100'],
+            'task_type' => $slot['task_type'],
+            'celebrating' => $slot['celebrating'],
+            'milestone' => (string)$state['milestone'],
+            'start_page' => $sp,
+            'end_page' => $ep,
+            'page_count' => $pages,
+            'day_session' => $cur ? $cur['session'] : 'full',
+            'sessions' => $sessions,
+            'pages_memorized' => (int)$state['pages_memorized'],
+            'total_pages' => mem_total_pages(),
+            'pct' => (int)round(((int)$state['pages_memorized'] / mem_total_pages()) * 100),
+            'label' => ($cur && $sp > 0) ? mem_range_label($conn, $sp, $ep) : '',
+        ];
+    }
+}
+
+if (!function_exists('mem_current_murajaah')) {
+    /** Latest Muraja'ah session row for the current assessment position, or null. */
+    function mem_current_murajaah($conn, array $state) {
+        if (!db_table_exists($conn, 'quran_murajaah_sessions')) return null;
+        $task = mem_compute_task($conn, $state);
+        if ($task['task_type'] !== 'murajaah') return null;
+        $student_id = (int)$state['student_id'];
+        $day = (int)$task['day_number'];
+        $ds = $task['day_session'];
+        try {
+            $stmt = $conn->prepare("SELECT * FROM quran_murajaah_sessions
+                WHERE student_id = ? AND task_day = ? AND day_session = ?
+                ORDER BY id DESC LIMIT 1");
+            $stmt->bind_param("iis", $student_id, $day, $ds);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            return $r ?: null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('mem_gate')) {
+    /**
+     * Public navigational guard for memorization pages. Returns
+     * ['ok'=>bool, 'state'=>string, 'reason'=>string, 'task'=>array|null, 'session'=>array|null].
+     */
+    function mem_gate($conn, $student_id) {
+        $student_id = (int)$student_id;
+        if (!student_is_memorizing($conn, $student_id)) {
+            return ['ok' => false, 'state' => 'denied', 'reason' => "This account is not enrolled in Qur'an Memorization.", 'task' => null, 'session' => null];
+        }
+        if (!mem_engine_installed($conn)) {
+            return ['ok' => false, 'state' => 'unmigrated', 'reason' => 'Memorization is not available yet.', 'task' => null, 'session' => null];
+        }
+        $state = mem_get_state($conn, $student_id);
+        if (!$state) {
+            return ['ok' => false, 'state' => 'inactive', 'reason' => "Memorization has not been started yet.", 'task' => null, 'session' => null];
+        }
+        if ($state['status'] === 'paused') {
+            return ['ok' => false, 'state' => 'paused', 'reason' => 'Your memorization journey is currently paused.', 'task' => null, 'session' => null];
+        }
+        if ($state['status'] === 'completed') {
+            return ['ok' => false, 'state' => 'done', 'reason' => 'You have completed the entire Qur\'an. Ma sha Allah!', 'task' => null, 'session' => null];
+        }
+        $task = mem_compute_task($conn, $state);
+        if ($task['task_type'] === 'celebration') {
+            return ['ok' => true, 'state' => 'celebration', 'reason' => '', 'task' => $task, 'session' => null];
+        }
+        if ($task['task_type'] === 'memorization') {
+            return ['ok' => true, 'state' => 'memorization', 'reason' => '', 'task' => $task, 'session' => null];
+        }
+        $sess = mem_current_murajaah($conn, $state);
+        if ($sess && $sess['status'] === 'pending') {
+            return ['ok' => false, 'state' => 'pending', 'reason' => "Your Muraja'ah recitation is with the teacher for review.", 'task' => $task, 'session' => $sess];
+        }
+        if ($sess && $sess['status'] === 'failed') {
+            return ['ok' => true, 'state' => 'retake', 'reason' => '', 'task' => $task, 'session' => $sess];
+        }
+        return ['ok' => true, 'state' => 'awaiting', 'reason' => '', 'task' => $task, 'session' => null];
+    }
+}
+
+if (!function_exists('mem_record_memorization')) {
+    /**
+     * Mark a memorization day complete for the exact scheduled page.
+     * Advances day_count and pages_memorized. Returns ['ok', 'task', 'state'].
+     */
+    function mem_record_memorization($conn, $student_id, $submit_page) {
+        $student_id = (int)$student_id;
+        $submit_page = (int)$submit_page;
+        $state = mem_get_state($conn, $student_id);
+        if (!$state || $state['status'] !== 'active') return ['ok' => false, 'reason' => 'Memorization is not active.', 'task' => null, 'state' => null];
+        $task = mem_compute_task($conn, $state);
+        if ($task['task_type'] !== 'memorization') return ['ok' => false, 'reason' => 'Today is not a memorization day.', 'task' => $task, 'state' => $state];
+        if ($submit_page !== $task['start_page']) return ['ok' => false, 'reason' => 'Unexpected page number.', 'task' => $task, 'state' => $state];
+        $now = date('Y-m-d H:i:s');
+        $today = date('Y-m-d');
+        $day = (int)$task['day_number'];
+
+        if (db_table_exists($conn, 'quran_memorization_log')) {
+            try {
+                $st = $conn->prepare("INSERT INTO quran_memorization_log
+                    (student_id, task_day, task_type, start_page, end_page, day_session, result, completed_by, notes, assigned_date, completed_at)
+                    VALUES (?, ?, 'memorization', ?, ?, 'full', 'completed', 'student', NULL, ?, ?)");
+                $st->bind_param("iiiiss", $student_id, $day, $submit_page, $submit_page, $today, $now);
+                $st->execute();
+            } catch (Throwable $e) { /* ignore */ }
+        }
+
+        $new_pages = (int)$state['pages_memorized'] + 1;
+        $next = mem_slot($day + 1);
+        mem_apply_slot($conn, $student_id, $next, [
+            'day_count' => $day,
+            'pages_memorized' => $new_pages,
+            'current_page' => $new_pages + 1,
+            'status' => $next['seg'] === 'done' ? 'completed' : 'active',
+        ]);
+        $new_state = mem_get_state($conn, $student_id);
+        return ['ok' => true, 'task' => mem_compute_task($conn, $new_state), 'state' => $new_state];
+    }
+}
+
+if (!function_exists('mem_submit_murajaah')) {
+    /**
+     * Student submits a Muraja'ah recitation (live via WhatsApp or audio upload).
+     * Creates a 'pending' session; progression only ever happens on teacher Pass.
+     */
+    function mem_submit_murajaah($conn, $student_id, $session_type = 'audio', $audio_file = '') {
+        $student_id = (int)$student_id;
+        $state = mem_get_state($conn, $student_id);
+        if (!$state || $state['status'] !== 'active') return ['ok' => false, 'reason' => 'Memorization is not active.', 'task' => null, 'state' => null];
+        $task = mem_compute_task($conn, $state);
+        if ($task['task_type'] !== 'murajaah') return ['ok' => false, 'reason' => "Today is not a Muraja'ah day.", 'task' => $task, 'state' => $state];
+        $existing = mem_current_murajaah($conn, $state);
+        if ($existing && $existing['status'] === 'pending') {
+            return ['ok' => false, 'reason' => 'A submission is already with the teacher for review.', 'task' => $task, 'state' => $state, 'session' => $existing];
+        }
+        if ($existing && $existing['status'] === 'passed') {
+            return ['ok' => false, 'reason' => 'This session was already accepted.', 'task' => $task, 'state' => $state, 'session' => $existing];
+        }
+        $day = (int)$task['day_number'];
+        $stype = $session_type === 'live' ? 'live' : 'audio';
+        $afile = (string)$audio_file;
+        try {
+            $st = $conn->prepare("INSERT INTO quran_murajaah_sessions
+                (student_id, task_day, start_page, end_page, day_session, session_type, audio_file, status, submitted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NOW())");
+            $st->bind_param("iiiisss", $student_id, $day, $task['start_page'], $task['end_page'],
+                $task['day_session'], $stype, $afile);
+            $st->execute();
+            $id = (int)$conn->insert_id;
+            return ['ok' => true, 'session_id' => $id, 'task' => $task, 'state' => $state, 'reason' => ''];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'reason' => 'Could not save the submission.', 'task' => $task, 'state' => $state];
+        }
+    }
+}
+
+if (!function_exists('mem_mark_murajaah')) {
+    /**
+     * Teacher reviews a Muraja'ah session. verdict: 'passed' | 'failed'.
+     * On pass: a split (morning/evening) day moves to 'evening' and stays open;
+     * the day advances only when its last session passes.
+     */
+    function mem_mark_murajaah($conn, $session_id, $verdict, $feedback = '', $admin_audio = null, $reviewer_id = 0) {
+        $session_id = (int)$session_id;
+        $reviewer_id = (int)$reviewer_id;
+        if (!db_table_exists($conn, 'quran_murajaah_sessions')) return ['ok' => false, 'reason' => 'Not migrated.', 'task' => null, 'state' => null];
+        $announce = $verdict === 'passed' ? 'passed' : 'failed';
+        try {
+            $stmt = $conn->prepare("SELECT * FROM quran_murajaah_sessions WHERE id = ? LIMIT 1");
+            $stmt->bind_param("i", $session_id);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+            if (!$row) return ['ok' => false, 'reason' => 'Session not found.', 'task' => null, 'state' => null];
+            if ($row['status'] === 'passed') return ['ok' => false, 'reason' => 'Already reviewed as passed.', 'task' => null, 'state' => null];
+
+            $now = date('Y-m-d H:i:s');
+            $feedback = (string)$feedback;
+            $admin_audio = $admin_audio === null ? null : (string)$admin_audio;
+            $upd = $conn->prepare("UPDATE quran_murajaah_sessions SET status = ?, feedback = ?, admin_audio_feedback = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?");
+            $upd->bind_param("sssiis", $announce, $feedback, $admin_audio, $reviewer_id, $now, $session_id);
+            $upd->execute();
+
+            $student_id = (int)$row['student_id'];
+            $state = mem_get_state($conn, $student_id);
+
+            if (db_table_exists($conn, 'quran_memorization_log')) {
+                try {
+                    $day = (int)$row['task_day'];
+                    $sp = (int)$row['start_page'];
+                    $ep = (int)$row['end_page'];
+                    $ds = (string)$row['day_session'];
+                    $today = date('Y-m-d');
+                    $lg = $conn->prepare("INSERT INTO quran_memorization_log
+                        (student_id, task_day, task_type, start_page, end_page, day_session, result, completed_by, notes, assigned_date, completed_at)
+                        VALUES (?, ?, 'murajaah', ?, ?, ?, ?, 'admin', ?, ?, ?)");
+                    $lg->bind_param("iiiisssss", $student_id, $day, $sp, $ep, $ds, $announce, $feedback, $today, $now);
+                    $lg->execute();
+                } catch (Throwable $e) { /* ignore */ }
+            }
+
+            if ($announce === 'passed' && $state && $state['status'] === 'active') {
+                $task = mem_compute_task($conn, $state);
+                $is_split = count($task['sessions']) > 1;
+                $day_complete = true;
+                if ($is_split && $row['day_session'] === 'morning') $day_complete = false;
+                if ($day_complete) {
+                    $next_day = (int)$state['day_count'] + 1;
+                    $next_slot = mem_slot($next_day + 1);
+                    mem_apply_slot($conn, $student_id, $next_slot, [
+                        'day_count' => $next_day,
+                        'status' => $next_slot['seg'] === 'done' ? 'completed' : 'active',
+                    ]);
+                } else {
+                    $us = $conn->prepare("UPDATE quran_memorization SET current_session = 'evening', updated_at = NOW() WHERE student_id = ?");
+                    $us->bind_param("i", $student_id);
+                    $us->execute();
+                }
+                $state = mem_get_state($conn, $student_id);
+            }
+
+            return ['ok' => true, 'verdict' => $announce,
+                'task' => $state ? mem_compute_task($conn, $state) : null,
+                'state' => $state, 'session' => $row];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'reason' => $e->getMessage(), 'task' => null, 'state' => null];
+        }
+    }
+}
+
+if (!function_exists('mem_acknowledge_celebration')) {
+    /** Advance past a celebration day once acknowledged by the student. */
+    function mem_acknowledge_celebration($conn, $student_id) {
+        $student_id = (int)$student_id;
+        $state = mem_get_state($conn, $student_id);
+        if (!$state || $state['status'] !== 'active') return ['ok' => false, 'reason' => 'Memorization is not active.', 'task' => null, 'state' => null];
+        $task = mem_compute_task($conn, $state);
+        if ($task['task_type'] !== 'celebration') return ['ok' => false, 'reason' => 'Nothing to celebrate right now.', 'task' => $task, 'state' => $state];
+        $day = (int)$state['day_count'] + 1;
+        $next = mem_slot($day + 1);
+        mem_apply_slot($conn, $student_id, $next, [
+            'day_count' => $day,
+            'milestone' => $task['celebrating'] === 'half' ? 'half' : 'complete',
+            'status' => $next['seg'] === 'done' ? 'completed' : 'active',
+        ]);
+        $state = mem_get_state($conn, $student_id);
+        return ['ok' => true, 'task' => mem_compute_task($conn, $state), 'state' => $state];
+    }
+}
+
+if (!function_exists('mem_set_status')) {
+    /** Internal status updater for pause/resume/complete. */
+    function mem_set_status($conn, $student_id, $status) {
+        $student_id = (int)$student_id;
+        if (!in_array($status, ['active', 'paused', 'completed'], true)) return false;
+        try {
+            $st = $conn->prepare("UPDATE quran_memorization SET status = ?, updated_at = NOW(),
+                completed_at = IF(? = 'completed', NOW(), completed_at) WHERE student_id = ?");
+            $st->bind_param("ssi", $status, $status, $student_id);
+            return $st->execute();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('mem_pause')) {
+    function mem_pause($conn, $student_id) { return mem_set_status($conn, (int)$student_id, 'paused'); }
+}
+if (!function_exists('mem_resume')) {
+    function mem_resume($conn, $student_id) { return mem_set_status($conn, (int)$student_id, 'active'); }
+}
+
+if (!function_exists('mem_self_heal')) {
+    /**
+     * Repair pointer desync from log rows: pages_memorized/current_page from
+     * memorization 'completed' rows, and day_count from the furthest
+     * completed/passed/skipped day. Never moves the student backwards.
+     */
+    function mem_self_heal($conn, $student_id) {
+        $student_id = (int)$student_id;
+        $state = mem_get_state($conn, $student_id);
+        if (!$state) return false;
+        $changed = false;
+        try {
+            if (db_table_exists($conn, 'quran_memorization_log')) {
+                $pages = (int)$conn->query("SELECT COUNT(*) c FROM quran_memorization_log
+                    WHERE student_id = $student_id AND task_type = 'memorization' AND result = 'completed'")->fetch_assoc()['c'];
+                $maxday = (int)$conn->query("SELECT COALESCE(MAX(task_day), 0) m FROM quran_memorization_log
+                    WHERE student_id = $student_id AND result IN ('completed','passed','skipped')")->fetch_assoc()['m'];
+                if ($pages > (int)$state['pages_memorized']) {
+                    mem_apply_slot($conn, $student_id, mem_slot((int)$state['day_count'] + 1), [
+                        'pages_memorized' => $pages, 'current_page' => $pages + 1,
+                    ]);
+                    $changed = true;
+                }
+                if ($maxday > (int)$state['day_count']) {
+                    mem_apply_slot($conn, $student_id, mem_slot($maxday + 1), [
+                        'day_count' => $maxday,
+                    ]);
+                    $changed = true;
+                }
+            }
+        } catch (Throwable $e) { /* ignore */ }
+        return $changed;
+    }
+}
+
+if (!function_exists('mem_adjust')) {
+    /**
+     * Admin moves a memorizer's position to a target page count (0..604).
+     * Records an 'adjusted' history row and re-syncs positional fields.
+     */
+    function mem_adjust($conn, $student_id, $target_pages, $admin_id = 0, $notes = '') {
+        $student_id = (int)$student_id;
+        $target_pages = max(0, min(mem_total_pages(), (int)$target_pages));
+        $state = mem_get_state($conn, $student_id);
+        if (!$state) return ['ok' => false, 'reason' => 'No memorization record.', 'state' => null];
+        $notes = (string)$notes;
+        $admin_id = (int)$admin_id;
+        $now = date('Y-m-d H:i:s');
+        $today = date('Y-m-d');
+        try {
+            mem_apply_slot($conn, $student_id, mem_slot((int)$state['day_count'] + 1), [
+                'pages_memorized' => $target_pages,
+                'current_page' => $target_pages + 1,
+                'milestone' => $target_pages >= 304 && (string)$state['milestone'] === 'none' ? 'half' : (string)$state['milestone'],
+                'status' => $target_pages >= mem_total_pages() ? 'completed' : (string)$state['status'],
+            ]);
+            if (db_table_exists($conn, 'quran_memorization_log')) {
+                $lg = $conn->prepare("INSERT INTO quran_memorization_log
+                    (student_id, task_day, task_type, start_page, end_page, day_session, result, completed_by, notes, assigned_date, completed_at)
+                    VALUES (?, 0, 'memorization', 0, 0, 'full', 'adjusted', 'admin', ?, ?, ?)");
+                $lg->bind_param("iisss", $student_id, $notes, $today, $now);
+                $lg->execute();
+            }
+            return ['ok' => true, 'state' => mem_get_state($conn, $student_id)];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'reason' => $e->getMessage(), 'state' => null];
+        }
+    }
+}
+
+if (!function_exists('mem_progress_summary')) {
+    /** Everything the dashboard / student hub needs for the progress card. */
+    function mem_progress_summary($conn, $student_id) {
+        $student_id = (int)$student_id;
+        $state = mem_get_state($conn, $student_id);
+        if (!$state) return null;
+        $task = mem_compute_task($conn, $state);
+        $milestone_text = '';
+        switch ((string)$state['milestone']) {
+            case '100':     $milestone_text = '100 Pages Completed'; break;
+            case 'half':    $milestone_text = "Half of the Qur'an Completed"; break;
+            case 'complete': $milestone_text = 'Entire Qur\'an Completed'; break;
+        }
+        $pages = (int)$state['pages_memorized'];
+        $total = mem_total_days();
+        $slots = mem_schedule_slots();
+        $next_celeb = 0;
+        $next_mraj = 0;
+        for ($d = (int)$state['day_count'] + 1; $d <= $total; $d++) {
+            if (!$next_celeb && !empty($slots[$d]['celebrating'])) $next_celeb = $d;
+            if (!$next_mraj && $slots[$d]['task_type'] === 'murajaah') $next_mraj = $d;
+            if ($next_celeb && $next_mraj) break;
+        }
+        return [
+            'state' => $state,
+            'task' => $task,
+            'enrolled' => true,
+            'status' => (string)$state['status'],
+            'pages_memorized' => $pages,
+            'total_pages' => mem_total_pages(),
+            'remaining_pages' => mem_total_pages() - $pages,
+            'pct' => (int)round(($pages / mem_total_pages()) * 100),
+            'days_completed' => (int)$state['day_count'],
+            'days_total' => $total,
+            'days_remaining' => $total - (int)$state['day_count'],
+            'current_block' => (int)$state['current_month'],
+            'block100' => (int)$state['current_100_block'],
+            'milestone' => (string)$state['milestone'],
+            'milestone_text' => $milestone_text,
+            'next_celebration_day' => $next_celeb,
+            'next_assessment_day' => $next_mraj,
+            'half_page' => 304,
+        ];
+    }
+}
+
+if (!function_exists('mem_page_statuses')) {
+    /**
+     * Grid status for all 604 pages:
+     *   'new' | 'memorized' | 'under_revision' | 'revised'
+     * Precedence: current Muraja'ah range > revised (passed) > memorized > new.
+     */
+    function mem_page_statuses($conn, $student_id) {
+        $student_id = (int)$student_id;
+        $pages = mem_total_pages();
+        $out = array_fill(1, $pages, 'new');
+        $state = mem_get_state($conn, $student_id);
+        if (!$state) return $out;
+        $mem = (int)$state['pages_memorized'];
+        for ($p = 1; $p <= $pages; $p++) {
+            if ($p <= $mem) $out[$p] = 'memorized';
+        }
+        try {
+            if (db_table_exists($conn, 'quran_memorization_log') && $mem > 0) {
+                $res = $conn->query("SELECT DISTINCT start_page, end_page FROM quran_memorization_log
+                    WHERE student_id = $student_id AND task_type = 'murajaah' AND result IN ('passed','completed')");
+                while ($r = $res->fetch_assoc()) {
+                    $s = max(1, (int)$r['start_page']);
+                    $e = min($pages, (int)$r['end_page']);
+                    for ($p = $s; $p <= $e; $p++) $out[$p] = 'revised';
+                }
+            }
+            $task = mem_compute_task($conn, $state);
+            if ($task['task_type'] === 'murajaah' && $task['page_count'] > 0) {
+                for ($p = $task['start_page']; $p <= $task['end_page']; $p++) $out[$p] = 'under_revision';
+            }
+        } catch (Throwable $e) { /* ignore */ }
+        return $out;
+    }
+}
+
+if (!function_exists('mem_history')) {
+    /** Recent timeline entries from the memorization log (newest first). */
+    function mem_history($conn, $student_id, $limit = 10) {
+        $student_id = (int)$student_id;
+        $limit = max(1, (int)$limit);
+        $rows = [];
+        if (db_table_exists($conn, 'quran_memorization_log')) {
+            try {
+                $stmt = $conn->prepare("SELECT * FROM quran_memorization_log WHERE student_id = ? ORDER BY id DESC LIMIT ?");
+                $stmt->bind_param("ii", $student_id, $limit);
+                $stmt->execute();
+                while ($r = $stmt->get_result()->fetch_assoc()) $rows[] = $r;
+            } catch (Throwable $e) { /* ignore */ }
+        }
+        return $rows;
+    }
+}
+
+if (!function_exists('mem_surah_name')) {
+    /** English name of a surah from the surahs table (cached, safe fallback). */
+    function mem_surah_name($conn, $surah_id) {
+        $surah_id = (int)$surah_id;
+        static $names = [];
+        if (isset($names[$surah_id])) return $names[$surah_id];
+        $names[$surah_id] = 'Surah ' . $surah_id;
+        try {
+            if (db_table_exists($conn, 'surahs')) {
+                $stmt = $conn->prepare("SELECT name_en FROM surahs WHERE id = ? LIMIT 1");
+                $stmt->bind_param("i", $surah_id);
+                $stmt->execute();
+                $r = $stmt->get_result()->fetch_assoc();
+                if ($r && $r['name_en'] !== '') $names[$surah_id] = (string)$r['name_en'];
+            }
+        } catch (Throwable $e) { /* ignore */ }
+        return $names[$surah_id];
+    }
+}
+
+if (!function_exists('mem_page_label')) {
+    /** e.g. "Al-Fatihah 1–7" or "Al-Baqarah 141 – Aal-i-Imran 1". */
+    function mem_page_label($conn, $page) {
+        $page = (int)$page;
+        if ($page < 1 || $page > mem_total_pages()) return 'Page ' . $page;
+        $span = hafiz_page_verse_span($conn, $page);
+        if (!$span) return 'Page ' . $page;
+        $s1 = (int)$span['start']['surah'];
+        $v1 = (int)$span['start']['verse'];
+        $s2 = (int)$span['end']['surah'];
+        $v2 = (int)$span['end']['verse'];
+        $n1 = mem_surah_name($conn, $s1);
+        if ($s1 === $s2) return $n1 . ' ' . $v1 . ($v2 > $v1 ? '–' . $v2 : '');
+        $n2 = mem_surah_name($conn, $s2);
+        return $n1 . ' ' . $v1 . ' – ' . $n2 . ' ' . $v2;
+    }
+}
+
+if (!function_exists('mem_range_label')) {
+    /** e.g. "Page 37 · Al-Mu'minun 31" or "Pages 26–50 · Al-Mu'minun 31". */
+    function mem_range_label($conn, $start, $end) {
+        $start = (int)$start;
+        $end = (int)$end;
+        if ($start <= 0 || $end <= 0) return '';
+        if ($start === $end) return 'Page ' . $start . ' · ' . mem_page_label($conn, $start);
+        return 'Pages ' . $start . '–' . $end . ' · ' . mem_page_label($conn, $start);
+    }
+}
+
+if (!function_exists('mem_admin_queue')) {
+    /** Pending Muraja'ah sessions for the admin queue, with student info. */
+    function mem_admin_queue($conn) {
+        if (!mem_engine_installed($conn)) return [];
+        try {
+            $res = $conn->query("
+                SELECT s.*, u.name, u.email, u.email AS student_email, u.profile_image
+                FROM quran_murajaah_sessions s
+                JOIN users u ON u.id = s.student_id
+                WHERE s.status = 'pending'
+                ORDER BY s.id ASC
+            ");
+            $out = [];
+            while ($r = $res->fetch_assoc()) $out[] = $r;
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+}
+
+if (!function_exists('mem_students_snapshot')) {
+    /** All memorizing students with their state row, for admin lists. */
+    function mem_students_snapshot($conn) {
+        if (!mem_engine_installed($conn)) return [];
+        try {
+            $res = $conn->query("
+                SELECT u.id, u.name, u.profile_image,
+                       m.pages_memorized, m.day_count, m.status, m.segment_type,
+                       m.current_month, m.current_100_block, m.milestone, m.completed_at, m.updated_at
+                FROM users u
+                LEFT JOIN quran_memorization m ON m.student_id = u.id
+                WHERE u.role = 'student' AND u.memorizing = 1
+                ORDER BY u.name ASC
+            ");
+            $out = [];
+            while ($r = $res->fetch_assoc()) $out[] = $r;
+            return $out;
+        } catch (Throwable $e) {
+            return [];
         }
     }
 }

@@ -11,6 +11,11 @@ if (student_is_hafiz($conn, $student_id)) {
     exit;
 }
 
+if (student_is_memorizing($conn, $student_id)) {
+    header("Location: quran_memorization.php");
+    exit;
+}
+
 $exam_mode = student_in_exam($conn, $student_id);
 $locked    = student_exam_locked($conn, $student_id);
 

@@ -1,0 +1,755 @@
+
+
+Quran Memorization & Muraja'ah Feature — Lisanun Mubeen Academy
+
+I want to add a Qur'an Memorization Planner/Progress System to the existing Lisanun Mubeen Academy website.
+
+The attached PDF contains the memorization methodology that the feature should be based on.
+
+Important: Before writing code, inspect the existing Lisanun Mubeen Academy codebase and understand its current authentication, student accounts, database structure, admin/student dashboards, existing UI components, and coding conventions. Do not unnecessarily rebuild existing functionality.
+
+The new feature should integrate naturally into the existing system.
+
+ 
+
+​Core concept
+
+The system is based on a student memorizing the Qur'an one page at a time.
+
+The default progression is:
+
+Memorize → revise the recently memorized pages → continue memorizing → periodic larger Muraja'ah → continue until the entire Qur'an is memorized.
+
+The PDF uses a standard 604-page Qur'an structure.
+
+The ultimate target is:
+
+Page 1 → Page 604
+
+The PDF's final summary indicates:
+
+604 memorization days
+
+174 revision days
+
+2 days allocated to prayer/thankfulness/celebration
+
+780 total days
+
+The PDF then recommends continuing to review the entire Qur'an regularly after completion.
+
+ 
+
+​Basic daily memorization rule
+
+The default pace is:
+
+1 page per memorization day.
+
+For example:
+
+Day 1 → Memorize Page 1
+Day 2 → Memorize Page 2
+Day 3 → Memorize Page 3
+Day 4 → Memorize Page 4
+Day 5 → Memorize Page 5
+Day 6 → Memorize Page 6
+Day 7 → Muraja'ah Pages 1–6
+
+Then:
+
+Day 8 → Memorize Page 7
+Day 9 → Memorize Page 8
+...
+Day 13 → Memorize Page 12
+Day 14 → Muraja'ah Pages 7–12
+
+The same pattern continues.
+
+So every six newly memorized pages are followed by a revision day covering those six pages.
+
+This is one of the most important parts of the system.
+
+ 
+
+​25-page monthly cycle
+
+The PDF organizes the memorization into approximately 25 new pages per month, while the month itself is treated as a 30-day cycle.
+
+The pattern is:
+
+6 memorization days
+1 revision day
+
+6 memorization days
+1 revision day
+
+6 memorization days
+1 revision day
+
+6 memorization days
+1 revision day
+
+1 final memorization day
+1 revision day covering the complete 25 pages
+
+Therefore:
+
+25 new pages
++
+5 revision days
+
+30-day monthly cycle
+
+For example, for the first 25 pages:
+
+Days 1–6
+Memorize Pages 1–6
+
+Day 7
+Muraja'ah Pages 1–6
+
+Days 8–13
+Memorize Pages 7–12
+
+Day 14
+Muraja'ah Pages 7–12
+
+Days 15–20
+Memorize Pages 13–18
+
+Day 21
+Muraja'ah Pages 13–18
+
+Days 22–27
+Memorize Pages 19–24
+
+Day 28
+Muraja'ah Pages 19–24
+
+Day 29
+Memorize Page 25
+
+Day 30
+Muraja'ah Pages 1–25
+
+Then the next 25-page block begins.
+
+This structure is visible repeatedly throughout the PDF.
+
+ 
+
+​Every 100 pages
+
+Four 25-page blocks make approximately:
+
+25 × 4 = 100 pages
+
+After completing a 100-page section, the PDF introduces a larger seven-day Muraja'ah cycle.
+
+The purpose is to revise the entire 100 newly memorized pages rather than treating them only as individual 25-page blocks.
+
+The seven-day revision is distributed progressively.
+
+Conceptually:
+
+Day 1 → Review Month/Block 1 = 25 pages
+Day 2 → Review Month/Block 2 = 25 pages
+Day 3 → Review Month/Block 3 = 25 pages
+Day 4 → Review Month/Block 4 = 25 pages
+
+Day 5 → Review 50 pages
+Morning: first 25
+Evening: second 25
+
+Day 6 → Review 50 pages
+Morning: third 25
+Evening: fourth 25
+
+Day 7 → Review the entire 100 pages
+
+So the system should understand that a 100-page milestone triggers a larger Muraja'ah phase.
+
+ 
+
+​Special handling of the first 304 pages
+
+The PDF treats the first half of the Qur'an specially.
+
+The first section runs through Page 304, ending at the end of Surah Al-Kahf.
+
+The PDF explicitly says that at this point the student has completed half of the Qur'an:
+
+From the beginning of Surah Al-Fatihah to the end of Surah Al-Kahf.
+
+It then instructs the student to review all of it and recommends presenting the memorization to a proficient teacher, preferably once at the end of each month.
+
+Therefore, after Page 304:
+
+Major milestone:
+FIRST HALF OF QUR'AN COMPLETED
+
+Then initiate a major 304-page Muraja'ah cycle.
+
+The PDF distributes this revision over seven days.
+
+The structure is approximately:
+
+Day 1 → 25 pages
+Day 2 → 25 pages
+Day 3 → 25 pages
+Day 4 → 29 pages
+
+Day 5 → 50 pages
+Morning: 25 pages
+Evening: 25 pages
+
+Day 6 → 54 pages
+Morning: 25 pages
+Evening: 29 pages
+
+Day 7 → 104 pages
+distributed across the previously memorized sections
+
+The important programming concept is that the first-half milestone is 304 pages, not 300 pages.
+
+Do not accidentally implement the first half as exactly 300 pages.
+
+ 
+
+​Pages 305–604
+
+After completing Page 304, the student continues:
+
+Page 305
+Page 306
+Page 307
+...
+Page 604
+
+The same basic memorization/revision system continues.
+
+The PDF divides this remaining section into 100-page groups:
+
+305–404
+405–504
+505–604
+
+Each group follows the same general:
+
+memorization
+→ six-page revision
+→ 25-page revision
+→ 100-page revision
+
+structure.
+
+ 
+
+​Final 300-page Muraja'ah
+
+After Page 604 has been memorized, the student has completed the entire Qur'an.
+
+The PDF then introduces another major revision phase covering the remaining 300 pages:
+
+Pages 305–604
+
+This is described as:
+
+Muraja'ah 300 pages
+
+and is distributed over seven days.
+
+The PDF identifies this section as:
+
+From the beginning of Surah Maryam to the end of Surah An-Nas.
+
+The final major phase therefore becomes:
+
+Qur'an completely memorized
+↓
+Major 300-page Muraja'ah
+↓
+Completion
+
+ 
+
+​Student progress should be state-based
+
+Do NOT implement this as a collection of manually hard-coded pages.
+
+Create a proper progression/state system.
+
+The student's memorization state should contain information such as:
+
+currentPage
+pagesMemorized
+currentDay
+currentCycle
+currentMonth
+current100PageBlock
+currentTaskType
+revisionRange
+milestone
+completionPercentage
+
+For example:
+
+{
+currentPage: 37,
+taskType: "MEMORIZATION",
+revisionPages: [],
+currentMonth: 2,
+current100Block: 1,
+milestone: null
+}
+
+On a revision day:
+
+{
+currentPage: 37,
+taskType: "MURAJAAH",
+revisionPages: [32, 33, 34, 35, 36, 37]
+}
+
+The exact data structure should follow the existing application's architecture.
+
+ 
+
+​Do not simply calculate everything from calendar dates
+
+The system should distinguish between:
+
+Learning day
+
+and
+
+Calendar date.
+
+For example, if a student misses three days, the system should not automatically assume that the student memorized the pages assigned to those dates.
+
+Instead, the student's progress should advance when the student/admin records the task as completed.
+
+This is important because Qur'an memorization is progress-based, not merely calendar-based.
+
+The application should therefore be capable of:
+
+Today's assigned task
+↓
+Student completes it
+↓
+Student marks it completed
+↓
+Progress advances
+↓
+Next task becomes available
+
+An admin/teacher should also be able to mark or correct progress.
+
+ 
+
+​Student dashboard
+
+Add a dedicated section such as:
+
+Qur'an Memorization
+
+The student should be able to immediately see:
+
+Today's task
+
+Example:
+
+Today's Task
+
+📖 Memorization
+
+Page 37
+
+Target:
+Memorize today's page
+
+Progress:
+36 / 604 pages
+
+Or on a revision day:
+
+Today's Task
+
+🔄 Muraja'ah
+
+Pages 31–36
+
+6 pages to revise
+
+The interface should clearly distinguish between:
+
+حفظ — Memorization
+
+and
+
+مراجعة — Muraja'ah
+
+ 
+
+​Visual progress
+
+The student should be able to see something like:
+
+Qur'an Memorization
+
+████████░░░░░░░░░░░░ 37 / 604
+
+6.1% Complete
+
+Also show:
+
+Pages Memorized: 37
+Pages Remaining: 567
+Current Month: 2
+Current 100-Page Block: 1
+
+At major milestones:
+
+🎉 100 Pages Completed
+
+🎉 Half of the Qur'an Completed
+
+🎉 Qur'an Memorization Completed
+
+Do not make the milestone merely cosmetic. It should be generated from the actual progress state.
+
+ 
+
+​Teacher/Admin functionality
+
+The teacher/admin should be able to see each memorizing student's progress.
+
+For example:
+
+Student
+Current Page: 37
+Today's Task: Muraja'ah Pages 31–36
+Overall Progress: 6.1%
+Last Completed: Yesterday
+Status: Active
+
+The teacher should be able to:
+
+mark memorization completed
+
+mark Muraja'ah completed
+
+view assigned pages
+
+view missed tasks
+
+correct a student's current progress
+
+move a student backward/forward when necessary
+
+view the student's complete memorization history
+
+The system should maintain a history rather than simply overwriting the student's current page.
+
+ 
+
+​Completion history
+
+Every completed task should ideally create a record.
+
+For example:
+
+September 21
+MEMORIZATION
+Page 37
+Completed
+
+September 22
+MURAJAAH
+Pages 32–37
+Completed
+
+This gives the academy a reliable history of the student's journey.
+
+A database record could conceptually contain:
+
+student_id
+task_type
+start_page
+end_page
+assigned_date
+completed_date
+status
+completed_by
+notes
+
+Use the existing project's database conventions rather than blindly creating a new unrelated architecture.
+
+ 
+
+​Important: allow real-world adjustment
+
+The PDF describes a structured ideal plan, but real students will not all progress identically.
+
+Therefore, the system should be designed so that the academy can eventually support:
+
+1 page/day
+2 pages/day
+custom pace
+paused
+catch-up
+teacher adjustment
+
+However, the default implementation must follow the PDF's 1-page-per-day system.
+
+Do not introduce unnecessary complexity unless the existing application architecture requires it.
+
+ 
+
+​Important distinction between memorization and revision
+
+A page can be:
+
+NEW
+MEMORIZED
+UNDER_REVISION
+REVISED
+
+But do not treat revision as new memorization.
+
+For example:
+
+Page 1
+↓
+Memorized
+
+Later:
+Page 1
+↓
+Muraja'ah
+
+Later:
+Page 1
+↓
+Part of 25-page revision
+
+Later:
+Page 1
+↓
+Part of 100-page revision
+
+Later:
+Page 1
+↓
+Part of major Qur'an revision
+
+The same page can therefore appear in many future revision cycles.
+
+Do not duplicate the page as a new memorization record.
+
+Maintain one canonical Qur'an page and generate revision tasks against it.
+
+ 
+
+​Recommended architecture
+
+Build the system around task generation, not manually stored future tasks.
+
+Conceptually:
+
+Qur'an Pages
+↓
+Memorization Progress
+↓
+Progression Engine
+↓
+Today's Task
+↓
+Student Dashboard
+
+The progression engine should determine:
+
+What should this student do today?
+
+based on:
+
+last completed memorization page
+
+memorization history
+
+current cycle
+
+current 6-page group
+
+current 25-page group
+
+current 100-page group
+
+major milestone
+
+revision stage
+
+This will make the feature maintainable.
+
+ 
+
+​The algorithm should be deterministic
+
+Given the student's current progress, the system should always be able to calculate the next task.
+
+For example:
+
+Last completed:
+Page 6
+
+Next:
+Muraja'ah Pages 1–6
+
+After that:
+
+Next:
+Memorize Page 7
+
+After Page 12:
+
+Next:
+Muraja'ah Pages 7–12
+
+After completing the 25-page cycle:
+
+Next:
+Muraja'ah Pages 1–25
+
+After completing the fourth 25-page cycle:
+
+100-page milestone
+↓
+7-day 100-page Muraja'ah
+
+After Page 304:
+
+Half-Qur'an milestone
+↓
+304-page major Muraja'ah
+
+After Page 604:
+
+Complete Qur'an
+↓
+300-page final major Muraja'ah
+
+ 
+
+​Completion
+
+When Page 604 is successfully memorized, display a major completion state.
+
+Something similar to:
+
+الحمد لله
+
+You have completed memorizing the Qur'an.
+
+604 / 604 Pages
+100%
+
+The PDF itself celebrates this completion with:
+
+الحمد لله ... أنا الآن أحفظ القرآن الكريم كله
+
+and then recommends maintaining regular complete recitation/revision after memorization.
+
+This should be a state change, not merely a progress bar reaching 100%.
+
+ 
+
+​Important UI principle
+
+The system should make it extremely obvious to the student:
+
+What I memorize today
+
+versus
+
+What I revise today.
+
+Use clear visual distinction, labels, and page ranges.
+
+For example:
+
+TODAY
+
+📖 NEW MEMORIZATION
+Page 43
+
+OR
+
+🔄 MURAJAAH
+Pages 37–42
+
+If there are multiple revision sessions:
+
+Morning Muraja'ah
+Pages 1–25
+
+Evening Muraja'ah
+Pages 26–50
+
+This is particularly important for the 50-page and 100-page revision days.
+
+ 
+
+​Do not lose the methodology
+
+The purpose of this feature is to digitize the methodology in the PDF, not simply create a generic Qur'an tracker.
+
+The core hierarchy must remain:
+
+1 PAGE
+↓
+6-PAGE REVISION
+↓
+25-PAGE REVISION
+↓
+100-PAGE REVISION
+↓
+304-PAGE HALF-QUR'AN REVISION
+↓
+300-PAGE FINAL REVISION
+↓
+COMPLETE QUR'AN
+
+The first half is specifically 304 pages, and the remaining section is 300 pages. The PDF explicitly identifies the first half as extending from Al-Fatihah through the end of Al-Kahf, and the final 300-page section from the beginning of Maryam through An-Nas.
+
+ 
+
+Final instruction to the coding agent
+
+First inspect the existing Lisanun Mubeen Academy codebase.
+
+Understand:
+
+​Current student authentication.
+​Student database structure.
+​Admin/teacher permissions.
+​Existing dashboard.
+​Existing UI components.
+​Existing database conventions.
+​Existing routing.
+​Existing JavaScript/PHP architecture.
+​Existing Qur'an-related functionality, if any.
+
+Then design the new Qur'an Memorization & Muraja'ah feature so that it fits the existing application rather than creating a separate disconnected system.
+
+Do not modify unrelated functionality.
+
+Do not remove existing features.
+
+Do not create duplicate authentication/database systems.
+
+Implement the feature progressively and keep the existing application stable.
+
+The PDF's memorization methodology is the source of truth for the progression rules.
+
+ 

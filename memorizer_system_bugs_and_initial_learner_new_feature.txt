@@ -1,0 +1,18 @@
+bugs and need for new feature found in the newly implemented memorizer system: 
+1. For students who needs the current page they are memorizing to be recited to them by the admin/teacher should 
+have an assistance button that goes to the admin like an request for recitation of new page. for students who are proficient enough 
+can just mark the page memoriztion as completed after memorizing. and continue. 
+
+2. for the student muraja'ah upload/record audio cannot be accepted in this case because some students might cheat. so the only upload accepted in
+this case is video. selfie not accepted student sits from a distance where every where around him is visible then upload his recitation. 
+also some students might have the ability to come to the teacher and recite in that case the teacher should also have a chance to mark muraja'ah as 
+completed if a student has came to him and recite. Note all uploaded videos should automatically delete from system and db after 36hrs to save space.
+
+3. the Quran grid in page quran memorization i mean the quran page numbers are not well presented in small suitble boxes with respective colors. 
+not beautiful at all. fix that now. 
+
+4. when admin send feed back to memorizer feed back is no where to be found. 
+
+new feature to be added to non hafiz and non memorizer system:
+1. all completed learning cycle audios should automatically delete from system and db after 24hrs. but if a learning cycle is yet to complete audios 
+should always be available. 

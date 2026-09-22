@@ -147,6 +147,11 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
         ORDER BY t.submitted_at ASC
     ");
 }
+
+/* ----------------------
+   Section F: Qur'an Memorization — Muraja'ah Sessions Awaiting Review
+---------------------- */
+$mem_queue = mem_admin_queue($conn);
 ?>
 <!DOCTYPE html>
 <html>
@@ -475,6 +480,58 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
         <p class="small" style="margin:0;">Hafiz weekly tests awaiting your review will appear here.</p>
     </div>
 <?php endif; ?>
+<?php endif; ?>
+
+<!-- =====================
+     Section F: Qur'an Memorization — Muraja'ah Sessions Awaiting Review
+===================== -->
+<?php if (!empty($mem_queue)): ?>
+<h2 class="mt-3 animate-rise d5" style="display:flex;align-items:center;gap:10px;">
+    <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);">F</span> Qur'an Memorization — Muraja'ah Sessions Awaiting Review
+</h2>
+
+<?php foreach ($mem_queue as $mq): ?>
+<div class="card animate-rise d5">
+
+    <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
+        <h3 style="margin:0;"><?= htmlspecialchars($mq['name'] ?? 'Student') ?></h3>
+        <span class="small text-muted"><?= htmlspecialchars($mq['student_email'] ?? $mq['email'] ?? '') ?></span>
+    </div>
+
+    <p class="small">
+        <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;">
+            Pages <?= (int)$mq['start_page'] ?>–<?= (int)$mq['end_page'] ?>
+        </span>
+        <?php if ($mq['day_session'] !== 'full'): ?>
+            &nbsp;· <span class="badge badge-blue"><?= ucfirst($mq['day_session']) ?> Session</span>
+        <?php endif; ?>
+        &nbsp;· <span class="badge badge-gold"><?= $mq['session_type'] === 'live' ? 'Live via WhatsApp' : 'Audio' ?></span>
+        &nbsp;· Submitted <?= $mq['submitted_at'] ? date('d M Y, g:i A', strtotime($mq['submitted_at'])) : '—' ?>
+    </p>
+
+    <?php if ($mq['session_type'] === 'audio' && !empty($mq['audio_file'])): ?>
+        <div style="margin:10px 0;"><?= media_player_html($mq['audio_file'], '../uploads/student_audio/') ?></div>
+    <?php endif; ?>
+
+    <form method="POST" action="review_murajaah.php" enctype="multipart/form-data" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <input type="hidden" name="session_id" value="<?= (int)$mq['id'] ?>">
+        <?= csrf_field() ?>
+        <div style="flex:2;min-width:220px;">
+            <label class="form-label">Feedback / Tajweed Notes</label>
+            <textarea class="form-input" name="feedback" rows="2" placeholder="Optional notes for the student…"></textarea>
+        </div>
+        <div style="flex:1;min-width:180px;">
+            <label class="form-label">Voice Feedback (optional)</label>
+            <input class="form-input" type="file" name="admin_audio" accept="audio/*,.mp3,.m4a,.wav,.ogg,.webm,.aac,.mp4,.m4v,.mov,.3gp">
+        </div>
+        <div style="display:flex;gap:8px;">
+            <button class="btn btn-gold" type="submit" name="status" value="passed" onclick="return confirm('Mark this Muraja\'ah session as PASSED? The student will advance.');"><?= ui_icon('check', 15) ?> Pass</button>
+            <button class="btn btn-danger" type="submit" name="status" value="failed" onclick="return confirm('Mark this Muraja\'ah session as FAILED? The student will be asked to practice and retake.');"><?= ui_icon('close', 15) ?> Fail</button>
+        </div>
+    </form>
+
+</div>
+<?php endforeach; ?>
 <?php endif; ?>
 
 <?php ui_page_end(); ?>

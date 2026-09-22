@@ -28,10 +28,20 @@ if (!db_column_exists($conn, 'users', 'hafiz')) {
 }
 
 if ($action === 'set') {
-    // Toggle Hafiz ON
-    $stmt = $conn->prepare("UPDATE users SET hafiz = 1 WHERE id = ? AND role = 'student'");
+    // Toggle Hafiz ON (mutually exclusive with Qur'an Memorization)
+    $memorizing_clear = db_column_exists($conn, 'users', 'memorizing') ? ', memorizing = 0' : '';
+    $stmt = $conn->prepare("UPDATE users SET hafiz = 1$memorizing_clear WHERE id = ? AND role = 'student'");
     $stmt->bind_param("i", $student_id);
     $stmt->execute();
+
+    // Pause any active memorization journey for this student
+    if (db_table_exists($conn, 'quran_memorization')) {
+        try {
+            $ps = $conn->prepare("UPDATE quran_memorization SET status = 'paused', updated_at = NOW() WHERE student_id = ? AND status = 'active'");
+            $ps->bind_param("i", $student_id);
+            $ps->execute();
+        } catch (Throwable $e) { /* ignore */ }
+    }
 
     // Create first revision cycle if none exists
     if (db_table_exists($conn, 'hafiz_revision')) {

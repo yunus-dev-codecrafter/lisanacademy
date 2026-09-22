@@ -6,8 +6,9 @@ include '../config/db.php';
 
 /* Fetch all students */
 $hafiz_col = db_column_exists($conn, 'users', 'hafiz');
+$mem_col = db_column_exists($conn, 'users', 'memorizing');
 $students = $conn->query("
-    SELECT id, name, email, blocked, suspended" . ($hafiz_col ? ", hafiz" : "") . "
+    SELECT id, name, email, blocked, suspended" . ($hafiz_col ? ", hafiz" : "") . ($mem_col ? ", memorizing" : "") . "
     FROM users
     WHERE role='student'
     ORDER BY name ASC
@@ -34,6 +35,9 @@ $students = $conn->query("
     <?php if ($hafiz_col): ?>
     <button class="btn btn-ghost filter-type" data-filter="all" onclick="filterByType('all')">All</button>
     <button class="btn btn-ghost filter-type" data-filter="hafiz" onclick="filterByType('hafiz')"><?= ui_icon('book', 14) ?> Hafiz</button>
+    <?php if ($mem_col): ?>
+    <button class="btn btn-ghost filter-type" data-filter="memorizer" onclick="filterByType('memorizer')"><?= ui_icon('star', 14) ?> Memorizer</button>
+    <?php endif; ?>
     <button class="btn btn-ghost filter-type" data-filter="non-hafiz" onclick="filterByType('non-hafiz')">Non-Hafiz</button>
     <?php endif; ?>
     <div style="flex:1;min-width:220px;position:relative;">
@@ -51,13 +55,17 @@ $students = $conn->query("
 <div class="card card-hover animate-rise student-card"
      data-name="<?= htmlspecialchars(strtolower($s['name'])) ?>"
      data-email="<?= htmlspecialchars(strtolower($s['email'])) ?>"
-     data-hafiz="<?= $hafiz_col ? (int)($s['hafiz'] ?? 0) : 0 ?>">
+     data-hafiz="<?= $hafiz_col ? (int)($s['hafiz'] ?? 0) : 0 ?>"
+     data-memorizing="<?= $mem_col ? (int)($s['memorizing'] ?? 0) : 0 ?>">
     <h3 style="margin:0 0 4px;"><?=htmlspecialchars($s['name'])?></h3>
     <p class="small text-muted" style="margin:0 0 12px;word-break:break-word;"><?=htmlspecialchars($s['email'])?></p>
 
     <p class="small" style="margin:0 0 14px;">
         <?php if ($hafiz_col && (int)($s['hafiz'] ?? 0) === 1): ?>
             <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;">Hafiz</span>
+        <?php endif; ?>
+        <?php if ($mem_col && (int)($s['memorizing'] ?? 0) === 1): ?>
+            <span class="badge" style="background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;">Memorizer</span>
         <?php endif; ?>
         <?php if ($s['blocked']): ?>
             <span class="badge badge-red">Blocked</span>
@@ -213,10 +221,12 @@ function filterStudents() {
         var name = (card.getAttribute('data-name') || '').toLowerCase();
         var email = (card.getAttribute('data-email') || '').toLowerCase();
         var isHafiz = card.getAttribute('data-hafiz') === '1';
+        var isMemorizer = (card.getAttribute('data-memorizing') || '0') === '1';
         var matchSearch = q === '' || name.indexOf(q) !== -1 || email.indexOf(q) !== -1;
         var matchType = activeTypeFilter === 'all'
             || (activeTypeFilter === 'hafiz' && isHafiz)
-            || (activeTypeFilter === 'non-hafiz' && !isHafiz);
+            || (activeTypeFilter === 'memorizer' && isMemorizer)
+            || (activeTypeFilter === 'non-hafiz' && !isHafiz && !isMemorizer);
         card.style.display = (matchSearch && matchType) ? '' : 'none';
         if (matchSearch && matchType) visible++;
     });

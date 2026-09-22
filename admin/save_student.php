@@ -17,7 +17,9 @@ $name  = trim($_POST['name']);
 $email = strtolower(trim($_POST['email']));
 $pass  = $_POST['password'];
 $phone = trim($_POST['phone'] ?? '');
-$hafiz = (int)($_POST['hafiz'] ?? 0);
+$designation = (int)($_POST['designation'] ?? ($_POST['hafiz'] ?? 0));
+$hafiz = $designation === 2 ? 1 : 0;
+$memorizing = $designation === 1 ? 1 : 0;
 
 /* check email uniqueness */
 $stmt = $conn->prepare("SELECT id FROM users WHERE email = ?");
@@ -35,13 +37,20 @@ $hashed = password_hash($pass, PASSWORD_DEFAULT);
 /* insert student */
 $has_phone = db_column_exists($conn, 'users', 'phone');
 $has_hafiz = db_column_exists($conn, 'users', 'hafiz');
+$has_mem = db_column_exists($conn, 'users', 'memorizing');
 
-if ($has_phone && $has_hafiz) {
+if ($has_phone && $has_hafiz && $has_mem) {
+    $stmt = $conn->prepare("
+        INSERT INTO users (name, email, phone, password, role, device_type, suspended, blocked, hafiz, memorizing)
+        VALUES (?, ?, ?, ?, 'student', 'iphone', 0, 0, ?, ?)
+    ");
+    $stmt->bind_param("ssssii", $name, $email, $phone, $hashed, $hafiz, $memorizing);
+} elseif ($has_phone && $has_hafiz) {
     $stmt = $conn->prepare("
         INSERT INTO users (name, email, phone, password, role, device_type, suspended, blocked, hafiz)
         VALUES (?, ?, ?, ?, 'student', 'iphone', 0, 0, ?)
     ");
-    $stmt->bind_param("sssii", $name, $email, $phone, $hashed, $hafiz);
+    $stmt->bind_param("ssssi", $name, $email, $phone, $hashed, $hafiz);
 } elseif ($has_phone) {
     $stmt = $conn->prepare("
         INSERT INTO users (name, email, phone, password, role, device_type, suspended, blocked)
@@ -69,6 +78,11 @@ if ($hafiz === 1 && $new_student_id > 0 && db_table_exists($conn, 'hafiz_revisio
         $ins->bind_param("iss", $new_student_id, $now, $now);
         $ins->execute();
     } catch (Throwable $e) { /* ignore */ }
+}
+
+/* If student is a Memorizer, initialize the memorization state */
+if ($memorizing === 1 && $new_student_id > 0) {
+    mem_start($conn, $new_student_id, 1);
 }
 
 /* Referral link: if this new student's phone matches a pending friend invite,

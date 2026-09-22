@@ -80,6 +80,19 @@ $pending_live_recitations = mysqli_fetch_assoc(
 // TOTAL PENDING (all combined)
 // ==========================
 $pending_recitations = $pending_recitations_submissions + $pending_lesson_requests + $pending_live_recitations;
+
+// ==========================
+// PENDING MURAJA'AH REVIEWS
+// ==========================
+$pending_murajaah = 0;
+if (db_table_exists($conn, 'quran_murajaah_sessions')) {
+    $pending_murajaah = mysqli_fetch_assoc(
+        mysqli_query(
+            $conn,
+            "SELECT COUNT(*) AS c FROM quran_murajaah_sessions WHERE status = 'pending'"
+        )
+    )['c'];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -171,6 +184,17 @@ $islamiyya_coming_count = $islamiyya_total - $islamiyya_live_count;
         <span class="ac-title">Students</span>
         <span class="ac-sub">View and manage students</span>
     </a>
+
+    <?php if (db_table_exists($conn, 'quran_memorization')): ?>
+    <a href="memorization_students.php" class="action-card action-gold">
+        <span class="ac-ico"><?= ui_icon('star', 24) ?></span>
+        <span class="ac-title">Memorization</span>
+        <span class="ac-sub">Memorizer progress &amp; Muraja&#8217;ah review</span>
+        <?php if ($pending_murajaah > 0): ?>
+            <span class="badge badge-count ac-badge"><?= $pending_murajaah ?> pending</span>
+        <?php endif; ?>
+    </a>
+    <?php endif; ?>
 
     <a href="announcements.php" class="action-card action-emerald">
         <span class="ac-ico"><?= ui_icon('bell', 24) ?></span>

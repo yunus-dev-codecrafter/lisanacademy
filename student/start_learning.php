@@ -9,6 +9,11 @@ if (student_is_hafiz($conn, (int)($_SESSION['user_id'] ?? 0))) {
     exit;
 }
 
+if (student_is_memorizing($conn, (int)($_SESSION['user_id'] ?? 0))) {
+    header("Location: quran_memorization.php");
+    exit;
+}
+
 if (student_in_exam($conn, (int)($_SESSION['user_id'] ?? 0))) {
     header("Location: exam.php");
     exit;

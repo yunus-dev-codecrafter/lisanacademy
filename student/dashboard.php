@@ -7,6 +7,7 @@ require_role('student');
 $student_id = (int)$_SESSION['user_id'];
 
 $is_hafiz = student_is_hafiz($conn, $student_id);
+$is_memorizer = student_is_memorizing($conn, $student_id);
 
 $exam_mode      = student_in_exam($conn, $student_id);
 $locked         = student_exam_locked($conn, $student_id);
@@ -46,8 +47,9 @@ $done  = $conn->query("
 ")->fetch_assoc()['c'];    
 $percent = $total ? round(($done/$total)*100) : 0;
 
-/* Record the moment of 100% completion (starts the 7-day auto-delete clock). */
-mark_graduated_if_due($conn, $student_id);    
+/* Record the moment of 100% completion (starts the 7-day auto-delete clock).
+   Memorizers are internally guarded by student_is_memorizing(). */
+if (!$is_memorizer) { mark_graduated_if_due($conn, $student_id); }    
 
 /* Latest admin lesson audio */    
 $lessonAudio = $conn->query("    
@@ -88,6 +90,8 @@ if ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1) {
     <div class="hero-banner-actions">
         <?php if ($is_hafiz): ?>
             <a class="btn btn-gold btn-sm" href="hafiz_revision.php"><?= ui_icon('book', 15) ?> Continue Revision</a>
+        <?php elseif ($is_memorizer): ?>
+            <a class="btn btn-gold btn-sm" href="quran_memorization.php"><?= ui_icon('star', 15) ?> Continue Memorization</a>
         <?php else: ?>
             <a class="btn btn-gold btn-sm" href="my_learning.php"><?= ui_icon('book', 15) ?> Continue Learning</a>
         <?php endif; ?>
@@ -172,6 +176,52 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
         <span class="stat-sub">Daurah cycles finished</span>
     </div>
     <?php endif; ?>
+    <?php elseif ($is_memorizer): ?>
+    <?php
+    if (mem_engine_installed($conn)) {
+        mem_self_heal($conn, $student_id);
+        $mem_summary = mem_progress_summary($conn, $student_id);
+        $mem_task = $mem_summary ? $mem_summary['task'] : null;
+    } else {
+        $mem_summary = null;
+        $mem_task = null;
+    }
+    $mem_pct = $mem_summary ? (int)$mem_summary['pct'] : 0;
+    $mem_label = 'Memorization is not available yet.';
+    if ($mem_task) {
+        if ($mem_task['task_type'] === 'celebration') {
+            $mem_label = 'Today is a celebration day!';
+        } elseif ($mem_task['task_type'] === 'memorization') {
+            $mem_label = 'Today: Memorize Page ' . (int)$mem_task['start_page'];
+        } else {
+            $mem_label = 'Today: Muraja\'ah Pages ' . (int)$mem_task['start_page'] . '–' . (int)$mem_task['end_page'];
+        }
+    }
+    ?>
+    <a class="stat-card stat-gold" href="quran_memorization.php">
+        <span class="stat-ico"><?= ui_icon('star', 22) ?></span>
+        <span class="stat-label">Qur'an Memorization</span>
+        <span class="stat-value"><span class="small text-muted"><?= $mem_summary ? (int)$mem_summary['pages_memorized'] . '/604 pages' : '—' ?></span></span>
+        <span class="stat-sub" style="white-space:normal;"><?= htmlspecialchars($mem_label) ?></span>
+        <?php if ($mem_summary): ?>
+            <div class="progress" style="margin-top:10px;">
+                <div class="progress-fill" style="width:<?=$mem_pct?>%;background:linear-gradient(90deg,#d97706,#f59e0b);"></div>
+                <div class="progress-text"><?=$mem_pct?>%</div>
+            </div>
+        <?php endif; ?>
+    </a>
+    <a class="stat-card stat-green" href="feedback.php" title="Review feedback from your teacher">
+        <span class="stat-ico"><?= ui_icon('chat', 22) ?></span>
+        <span class="stat-label">New Feedback</span>
+        <span class="stat-value"><?=$feedbackCount?></span>
+        <span class="stat-sub">Review from your teacher</span>
+    </a>
+    <a class="stat-card stat-blue" href="announcements.php" title="Read the latest updates">
+        <span class="stat-ico"><?= ui_icon('bell', 22) ?></span>
+        <span class="stat-label">Announcements</span>
+        <span class="stat-value"><?=$announcementCount?></span>
+        <span class="stat-sub">Unread updates</span>
+    </a>
     <?php else: ?>
     <a class="stat-card stat-green" href="my_learning.php">
         <span class="stat-ico"><?= ui_icon('book', 22) ?></span>
@@ -241,7 +291,8 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
     </div>
 </div>  
 
-<!-- New Lesson card (feature) -->
+<!-- New Lesson card (feature) — learners only -->
+<?php if (!$is_memorizer): ?>
 <div class="card animate-rise d3">
     <div class="card-title lesson-head">
         <span class="lesson-ico"><?= ui_icon('book-open', 20) ?></span>
@@ -263,9 +314,10 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
         <p class="text-muted">No lesson yet. Request one from <strong>My Learning</strong>.</p>
     <?php endif; ?>  
 </div>
+<?php endif; ?>
 
-<!-- Live Recitation Card -->
-<?php if (!$exam_mode): ?>
+<!-- Live Recitation Card — learners only -->
+<?php if (!$exam_mode && !$is_memorizer): ?>
 <?php $liveUnlocked = ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1); ?>
 <div class="card live-recitation-card <?= $liveUnlocked ? 'unlocked' : 'locked' ?>" id="liveRecitationCard">
     <div class="card-title" style="display:flex;align-items:center;gap:12px;">
@@ -319,6 +371,12 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
         <span class="ac-title">Qur'an Revision</span>
         <span class="ac-sub">Continue your page revision</span>
     </a>
+    <?php elseif ($is_memorizer): ?>
+    <a class="action-card action-gold animate-rise d4" href="quran_memorization.php">
+        <span class="ac-ico"><?= ui_icon('star', 24) ?></span>
+        <span class="ac-title">Qur'an Memorization</span>
+        <span class="ac-sub">Today's task &amp; progress</span>
+    </a>
     <?php else: ?>
     <a class="action-card action-gold animate-rise d4" href="my_learning.php">
         <span class="ac-ico"><?= ui_icon('book', 24) ?></span>
@@ -334,6 +392,8 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
     </a>
 </div>
 
+<!-- Restart Learning — learners only -->
+<?php if (!$is_memorizer): ?>
 <a class="card card-danger mt-2 animate-rise" style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;text-decoration:none;color:inherit;" href="reset_progress.php">
     <div style="flex:1;min-width:220px;">
         <h3 style="color:var(--danger);margin:0 0 6px;display:flex;align-items:center;gap:8px;"><?= ui_icon('alert', 18) ?> Restart Your Learning</h3>
@@ -341,6 +401,7 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
     </div>
     <span class="btn btn-danger"><?= ui_icon('refresh', 16) ?> Reset Learning</span>
 </a>
+<?php endif; ?>
 
 <?php ui_page_end(); ?>
 
