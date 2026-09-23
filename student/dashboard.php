@@ -6,6 +6,9 @@ require_once __DIR__ . '/../config/db.php';
 require_role('student');    
 $student_id = (int)$_SESSION['user_id'];
 
+/* Opportunistic media cleanup: Muraja'ah videos (36h) + completed-cycle audios (24h) */
+run_opportunistic_cleanup($conn);
+
 $is_hafiz = student_is_hafiz($conn, $student_id);
 $is_memorizer = student_is_memorizing($conn, $student_id);
 

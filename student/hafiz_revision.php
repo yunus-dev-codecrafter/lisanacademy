@@ -356,7 +356,7 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
         <span class="small text-muted">Pages 1–604</span>
     </div>
 
-    <div style="display:flex;flex-wrap:wrap;gap:3px;padding:10px 0;">
+    <div class="mem-grid">
         <?php
         for ($i = 1; $i <= 604; $i++):
             $class = 'page-cell page-locked';
@@ -376,11 +376,11 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
     </div>
 
     <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
-        <span class="small"><span class="page-cell page-done" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Completed</span>
-        <span class="small"><span class="page-cell page-failed" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Needs Work</span>
-        <span class="small"><span class="page-cell page-pending" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Awaiting Review</span>
-        <span class="small"><span class="page-cell page-current" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Next Up</span>
-        <span class="small"><span class="page-cell page-locked" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Not recited yet</span>
+        <span class="small"><span class="cell-swatch page-done"></span> Completed</span>
+        <span class="small"><span class="cell-swatch page-failed"></span> Needs Work</span>
+        <span class="small"><span class="cell-swatch page-pending"></span> Awaiting Review</span>
+        <span class="small"><span class="cell-swatch page-current"></span> Next Up</span>
+        <span class="small"><span class="cell-swatch page-locked"></span> Not recited yet</span>
     </div>
 </div>
 
@@ -493,49 +493,6 @@ $whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
 .juz-locked {
     background: var(--panel-bg, #f9fafb);
     color: var(--text-muted, #9ca3af);
-}
-.page-cell {
-    width: 36px;
-    height: 36px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 0.65rem;
-    font-weight: 600;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    transition: all 0.15s;
-}
-.page-done {
-    background: var(--emerald-100, #d1fae5);
-    color: var(--emerald-700, #047857);
-    border-color: var(--emerald-300, #6ee7b7);
-}
-.page-current {
-    background: var(--gold-light, #fef3c7);
-    color: var(--gold-deep, #b45309);
-    border-color: var(--gold-300, #fbbf24);
-    font-weight: 800;
-    animation: pulse 2s infinite;
-}
-.page-failed {
-    background: var(--danger-bg, #fee2e2);
-    color: var(--danger, #b91c1c);
-    border-color: var(--danger-border, #fca5a5);
-    font-weight: 800;
-}
-.page-pending {
-    background: #fef9c3;
-    color: #a16207;
-    border-color: #fde047;
-}
-.page-locked {
-    background: var(--panel-bg, #f9fafb);
-    color: var(--text-muted, #9ca3af);
-}
-@keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3); }
-    50% { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.1); }
 }
 </style>
 

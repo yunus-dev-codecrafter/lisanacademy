@@ -177,6 +177,17 @@ foreach ($lookup as $r) {
             <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">
         </div>
 
+        <div id="manageMurajaahWrap" style="display:none;">
+            <form id="inpersonForm">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="complete_murajaah">
+                <input type="hidden" name="student_id" value="">
+                <button class="btn btn-block btn-danger" type="submit"><?= ui_icon('check', 16) ?> Mark Muraja'ah Complete (Recited in Person)</button>
+            </form>
+            <p class="small text-muted" style="margin:6px 0 0 0;">Use when the student recited the range to you in person. The session is recorded as passed and the student advances immediately.</p>
+            <hr style="border:none;border-top:1px solid var(--border);margin:14px 0;">
+        </div>
+
         <form id="adjustForm">
             <?= csrf_field() ?>
             <label class="form-label">Adjust Page Count (0–604, pages memorized)</label>
@@ -232,6 +243,7 @@ function openManage(id, name, taskCode) {
     document.getElementById('manageStudentId').value = id;
     document.getElementById('manageName').textContent = name;
     document.getElementById('manageTaskWrap').style.display = (taskCode === 'memorization') ? 'block' : 'none';
+    document.getElementById('manageMurajaahWrap').style.display = (taskCode === 'murajaah') ? 'block' : 'none';
     document.getElementById('manageTaskBox').style.display = 'block';
     var taskLabels = {
         'memorization': 'Memorization day — memorize one page, then mark done.',
@@ -240,7 +252,7 @@ function openManage(id, name, taskCode) {
         'none': 'No task yet.'
     };
     document.getElementById('manageTaskLabel').textContent = taskLabels[taskCode] || taskCode;
-    ['taskForm','adjustForm','pauseForm','resumeForm','healForm'].forEach(function(f) {
+    ['taskForm','adjustForm','pauseForm','resumeForm','healForm','inpersonForm'].forEach(function(f) {
         if (document.getElementById(f)) {
             document.getElementById(f).querySelector('[name=student_id]').value = id;
         }
@@ -262,7 +274,7 @@ document.addEventListener('keydown', function(e) {
 });
 
 /* Submit all modal forms via AJAX to memorization_action.php */
-['taskForm','adjustForm','pauseForm','resumeForm','healForm'].forEach(function(fid) {
+['taskForm','adjustForm','pauseForm','resumeForm','healForm','inpersonForm'].forEach(function(fid) {
     var form = document.getElementById(fid);
     if (!form) return;
     form.addEventListener('submit', function(e) {

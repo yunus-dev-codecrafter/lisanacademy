@@ -104,11 +104,14 @@ if (!function_exists('ui_sidebar')) {
             $pending_teaching = function_exists('teaching_pending_count') && isset($GLOBALS['conn'])
                 ? teaching_pending_count($GLOBALS['conn'])
                 : 0;
+            $pending_mem = function_exists('memorization_pending_count') && isset($GLOBALS['conn'])
+                ? memorization_pending_count($GLOBALS['conn'])
+                : 0;
             $items = [
                 'dashboard'    => ['dashboard.php',        'grid',   'Dashboard'],
                 'islamiyya'    => ['islamiyya.php',        'book-open', 'Digital Islamiyya'],
                 'students'     => ['students.php',         'users',  'Students'],
-                'memorization' => ['memorization_students.php', 'star', 'Memorization'],
+                'memorization' => ['memorization_students.php', 'star', 'Memorization' . ($pending_mem > 0 ? ' <span class="nav-badge">' . $pending_mem . '</span>' : '')],
                 'applications' => ['applications.php',     'clipboard', 'Applications' . ($pending_apps > 0 ? ' <span class="nav-badge">' . $pending_apps . '</span>' : '')],
                 'teaching'     => ['teaching.php',         'book',   'Teaching' . ($pending_teaching > 0 ? ' <span class="nav-badge">' . $pending_teaching . '</span>' : '')],
                 'recitations'  => ['recitations_list.php', 'notes',  'Recitations'],

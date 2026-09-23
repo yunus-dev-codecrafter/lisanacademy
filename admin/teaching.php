@@ -6,6 +6,9 @@ require_once __DIR__ . '/../config/audio_fix.php';
 
 require_role('admin');
 
+/* Opportunistic media cleanup: Muraja'ah videos (36h) + completed-cycle audios (24h) */
+run_opportunistic_cleanup($conn);
+
 /* ----------------------
    Section A: Student submissions for review
 ---------------------- */
@@ -152,6 +155,14 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
    Section F: Qur'an Memorization — Muraja'ah Sessions Awaiting Review
 ---------------------- */
 $mem_queue = mem_admin_queue($conn);
+
+/* Section badge counts */
+$cnt_a = ($recitations && $recitations->num_rows > 0) ? $recitations->num_rows : 0;
+$cnt_d = array_sum(array_map(fn($g) => count($g['pages']), $hafiz_groups));
+$cnt_e = ($hafiz_tests && $hafiz_tests->num_rows > 0) ? $hafiz_tests->num_rows : 0;
+$cnt_f = count($mem_queue);
+$assistance_requests = function_exists('mem_assistance_pending') ? mem_assistance_pending($conn) : [];
+$cnt_g = count($assistance_requests);
 ?>
 <!DOCTYPE html>
 <html>
@@ -165,13 +176,44 @@ $mem_queue = mem_admin_queue($conn);
 <div class="page-hero animate-rise">
     <h1>Teaching Dashboard</h1>
     <p>Review recitations, prepare lessons and manage live sessions.</p>
+    <?php
+    $jumps = [];
+    if ($cnt_a > 0) $jumps[] = ['#sec-a', 'A · Student Submissions', $cnt_a];
+    if ($cnt_d > 0) $jumps[] = ['#sec-d', 'D · Hafiz Revision', $cnt_d];
+    if ($cnt_e > 0) $jumps[] = ['#sec-e', 'E · Hafiz Tests', $cnt_e];
+    if ($cnt_f > 0) $jumps[] = ['#sec-f', "F · Muraja'ah", $cnt_f];
+    if ($cnt_g > 0) $jumps[] = ['#sec-g', 'G · Assistance', $cnt_g];
+    ?>
+    <?php if (!empty($jumps)): ?>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+        <?php foreach ($jumps as [$url, $label, $cnt]): ?>
+            <a href="<?= htmlspecialchars($url) ?>" class="btn btn-sm btn-outline-light" style="gap:6px;">
+                <?= htmlspecialchars($label) ?> <span class="nav-badge" style="background:var(--danger);color:#fff;min-width:18px;text-align:center;"><?= $cnt ?></span>
+            </a>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
 </div>
+
+<?php if (isset($_GET['assist_done'])): ?>
+    <div class="alert alert-success animate-rise" style="margin-bottom:14px;">
+        <?= ui_icon('check-circle', 18) ?>
+        <span style="flex:1;"><strong>Assistance request fulfilled.</strong> The student will now see your recitation and notes on their memorization page.</span>
+    </div>
+<?php endif; ?>
+<?php if (!empty($_GET['error'])): ?>
+    <div class="alert alert-danger animate-rise" style="margin-bottom:14px;">
+        <?= ui_icon('alert', 18) ?>
+        <span style="flex:1;"><?= htmlspecialchars($_GET['error']) ?></span>
+    </div>
+<?php endif; ?>
 
 <!-- =====================
      Section A: Student Submissions for Review
 ===================== -->
-<h2 class="mt-2 animate-rise d1" style="display:flex;align-items:center;gap:10px;">
+<h2 id="sec-a" class="mt-2 animate-rise d1" style="display:flex;align-items:center;gap:10px;">
     <span class="badge badge-blue">A</span> Student Submissions for Review
+    <?php if ($cnt_a > 0): ?><span class="badge badge-count"><?= $cnt_a ?></span><?php endif; ?>
 </h2>
 
 <?php if ($recitations && $recitations->num_rows > 0): ?>
@@ -354,8 +396,9 @@ $mem_queue = mem_admin_queue($conn);
      Section D: Hafiz Revision Sessions
 ===================== -->
 <?php if (db_table_exists($conn, 'hafiz_sessions')): ?>
-<h2 class="mt-3 animate-rise d4" style="display:flex;align-items:center;gap:10px;">
+<h2 id="sec-d" class="mt-3 animate-rise d4" style="display:flex;align-items:center;gap:10px;">
     <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);">D</span> Hafiz Revision — Review Pages
+    <?php if ($cnt_d > 0): ?><span class="badge badge-count"><?= $cnt_d ?></span><?php endif; ?>
 </h2>
 
 <?php if (!empty($hafiz_groups)): ?>
@@ -440,8 +483,9 @@ $mem_queue = mem_admin_queue($conn);
      Section E: Hafiz Weekly Tests
 ===================== -->
 <?php if ($hafiz_tests): ?>
-<h2 class="mt-3 animate-rise d5" style="display:flex;align-items:center;gap:10px;">
+<h2 id="sec-e" class="mt-3 animate-rise d5" style="display:flex;align-items:center;gap:10px;">
     <span class="badge" style="background:linear-gradient(135deg,#d97706,#f59e0b);">E</span> Hafiz Weekly Tests — Awaiting Review
+    <?php if ($cnt_e > 0): ?><span class="badge badge-count"><?= $cnt_e ?></span><?php endif; ?>
 </h2>
 
 <?php if ($hafiz_tests->num_rows > 0): ?>
@@ -486,8 +530,9 @@ $mem_queue = mem_admin_queue($conn);
      Section F: Qur'an Memorization — Muraja'ah Sessions Awaiting Review
 ===================== -->
 <?php if (!empty($mem_queue)): ?>
-<h2 class="mt-3 animate-rise d5" style="display:flex;align-items:center;gap:10px;">
+<h2 id="sec-f" class="mt-3 animate-rise d5" style="display:flex;align-items:center;gap:10px;">
     <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);">F</span> Qur'an Memorization — Muraja'ah Sessions Awaiting Review
+    <?php if ($cnt_f > 0): ?><span class="badge badge-count"><?= $cnt_f ?></span><?php endif; ?>
 </h2>
 
 <?php foreach ($mem_queue as $mq): ?>
@@ -505,12 +550,16 @@ $mem_queue = mem_admin_queue($conn);
         <?php if ($mq['day_session'] !== 'full'): ?>
             &nbsp;· <span class="badge badge-blue"><?= ucfirst($mq['day_session']) ?> Session</span>
         <?php endif; ?>
-        &nbsp;· <span class="badge badge-gold"><?= $mq['session_type'] === 'live' ? 'Live via WhatsApp' : 'Audio' ?></span>
+        &nbsp;· <span class="badge badge-gold"><?= $mq['session_type'] === 'live' ? 'Live via WhatsApp' : ($mq['session_type'] === 'video' ? 'Video' : ($mq['session_type'] === 'inperson' ? 'In-Person' : 'Audio')) ?></span>
         &nbsp;· Submitted <?= $mq['submitted_at'] ? date('d M Y, g:i A', strtotime($mq['submitted_at'])) : '—' ?>
     </p>
 
-    <?php if ($mq['session_type'] === 'audio' && !empty($mq['audio_file'])): ?>
+    <?php if (in_array($mq['session_type'], ['audio', 'video'], true) && !empty($mq['audio_file'])): ?>
         <div style="margin:10px 0;"><?= media_player_html($mq['audio_file'], '../uploads/student_audio/') ?></div>
+    <?php elseif ($mq['session_type'] === 'inperson'): ?>
+        <div class="alert alert-info" style="padding:8px 12px;margin:10px 0;">
+            <?= ui_icon('user', 15) ?> Student recited this range <strong>in person</strong>. Listen to them, then pass or fail below. A written feedback note is recommended.
+        </div>
     <?php endif; ?>
 
     <form method="POST" action="review_murajaah.php" enctype="multipart/form-data" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
@@ -532,6 +581,62 @@ $mem_queue = mem_admin_queue($conn);
 
 </div>
 <?php endforeach; ?>
+<?php endif; ?>
+
+<!-- =====================
+     Section G: Recitation Assistance Requests
+===================== -->
+<?php if (!empty($assistance_requests)): ?>
+<h2 id="sec-g" class="mt-3 animate-rise d6" style="display:flex;align-items:center;gap:10px;">
+    <span class="badge" style="background:linear-gradient(135deg,#d97706,#f59e0b);">G</span> Recitation Assistance Requests
+    <?php if ($cnt_g > 0): ?><span class="badge badge-count"><?= $cnt_g ?></span><?php endif; ?>
+</h2>
+
+<?php foreach ($assistance_requests as $ar): ?>
+<div class="card animate-rise d6">
+    <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
+        <h3 style="margin:0;"><?= htmlspecialchars($ar['name'] ?? 'Student') ?></h3>
+        <span class="small text-muted"><?= htmlspecialchars($ar['email'] ?? '') ?></span>
+    </div>
+
+    <p class="small" style="margin:8px 0 10px;">
+        <span class="badge" style="background:linear-gradient(135deg,#d97706,#f59e0b);color:#fff;">
+            Page <?= (int)$ar['start_page'] ?>
+        </span>
+        &nbsp;· Day <?= (int)$ar['task_day'] ?>
+        &nbsp;· Requested <?= $ar['created_at'] ? date('d M Y, g:i A', strtotime($ar['created_at'])) : '—' ?>
+        <?php if (!empty($ar['phone'])): ?>
+            <?php
+                $wa_msg = "Assalamu alaikum " . ($ar['name'] ?? 'Student') . ", regarding your recitation assistance request for Page " . (int)$ar['start_page'] . " of the Qur'an...";
+                $wa_url = "https://wa.me/" . rawurlencode(normalize_phone_to_intl($ar['phone'])) . "?text=" . rawurlencode($wa_msg);
+            ?>
+            &nbsp; · <a class="btn btn-ghost btn-sm" href="<?= htmlspecialchars($wa_url) ?>" target="_blank" rel="noopener"><?= ui_icon('send', 14) ?> WhatsApp</a>
+        <?php endif; ?>
+    </p>
+
+    <?php if (!empty($ar['note'])): ?>
+        <blockquote style="margin:0 0 10px;padding:8px 12px;border-left:4px solid var(--gold);background:var(--surface-muted);border-radius:0 8px 8px 0;">
+            &ldquo;<?= htmlspecialchars($ar['note']) ?>&rdquo;
+        </blockquote>
+    <?php endif; ?>
+
+    <form method="POST" action="handle_mem_assistance.php" enctype="multipart/form-data" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <input type="hidden" name="request_id" value="<?= (int)$ar['id'] ?>">
+        <?= csrf_field() ?>
+        <div style="flex:1;min-width:180px;">
+            <label class="form-label">Recite audio for the student (optional)</label>
+            <input class="form-input" type="file" name="admin_audio" accept="audio/*,.mp3,.m4a,.wav,.ogg,.m4v,.mov,.3gp">
+        </div>
+        <div style="flex:2;min-width:220px;">
+            <label class="form-label">Notes for the student (optional)</label>
+            <textarea class="form-input" name="admin_notes" rows="2" placeholder="e.g. Tajweed tips for Page <?= (int)$ar['start_page'] ?>…"></textarea>
+        </div>
+        <button class="btn btn-gold" type="submit"><?= ui_icon('check-circle', 15) ?> Mark Fulfilled</button>
+    </form>
+</div>
+<?php endforeach; ?>
+<?php else: ?>
+<?php /* no pending assistance requests — Section G hidden */ ?>
 <?php endif; ?>
 
 <?php ui_page_end(); ?>

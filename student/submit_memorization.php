@@ -41,21 +41,67 @@ if ($action === 'acknowledge') {
     exit($res['reason'] ?? 'Could not acknowledge the celebration.');
 }
 
-/* Muraja'ah submission (audio / live) */
-if ($action === 'murajaah') {
-    $session_type = ($_POST['session_type'] ?? '') === 'live' ? 'live' : 'audio';
+/* Request the teacher to recite today's page (Bug #1 assistance) */
+if ($action === 'assist') {
+    $is_ajax = strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest' || !empty($_POST['ajax']);
+    $state = mem_get_state($conn, $student_id);
+    if (!$state || $state['status'] !== 'active') { if ($is_ajax) exit('Memorization is not active.'); redirect('quran_memorization.php'); }
+    $task = mem_compute_task($conn, $state);
+    if ($task['task_type'] !== 'memorization') {
+        if ($is_ajax) exit('Assistance is only available on memorization days.');
+        redirect('quran_memorization.php?error=' . urlencode('Assistance is only available on memorization days.'));
+    }
+    $note = trim($_POST['note'] ?? '');
+    $res = mem_assistance_submit($conn, $student_id, [
+        'task_day'   => (int)$task['day_number'],
+        'start_page' => (int)$task['start_page'],
+        'end_page'   => (int)$task['end_page'],
+        'note'       => $note,
+    ]);
+    if ($res['ok']) {
+        if ($is_ajax) exit('OK');
+        redirect('quran_memorization.php?assist_requested=1');
+    }
+    if ($is_ajax) exit($res['reason'] ?? 'Could not send the request.');
+    redirect('quran_memorization.php?error=' . urlencode($res['reason'] ?? 'Could not send the request.'));
+}
 
-    if ($session_type === 'audio') {
+/* Muraja'ah submission (video / in-person / live) */
+if ($action === 'murajaah') {
+    $session_type = $_POST['session_type'] ?? '';
+
+    /* VIDEO submission — the only accepted recording format for Muraja'ah */
+    if ($session_type === 'video') {
         if (!isset($_FILES['audio']) || $_FILES['audio']['error'] !== UPLOAD_ERR_OK) {
-            exit('Audio file not uploaded correctly.');
+            exit('Video file not uploaded correctly.');
+        }
+
+        $tmp_file = $_FILES['audio']['tmp_name'];
+        $size = filesize($tmp_file);
+        if ($size <= 0) {
+            exit('The uploaded video file is empty.');
+        }
+        if (defined('AUDIO_MAX_UPLOAD_BYTES') && $size > AUDIO_MAX_UPLOAD_BYTES) {
+            $mb = number_format(AUDIO_MAX_UPLOAD_BYTES / 1048576, 0);
+            exit('That file is too large (' . number_format($size / 1048576, 1) . ' MB). Maximum allowed is ' . $mb . ' MB.');
+        }
+
+        /* Read the file to locate top-level boxes (mobile cameras place moov at the end of the file) */
+        $bin = @file_get_contents($tmp_file);
+        $sniffed = ($bin !== false && $bin !== '') ? audio_sniff_type($bin) : '';
+        if ($sniffed === 'webm') {
+            exit('WebM video is not accepted for Muraja\'ah. Please record with your camera and upload an MP4-family file (.mp4 / .mov / .m4v / .3gp).');
+        }
+        if ($sniffed !== 'mp4' || !audio_detect_video_track($bin)) {
+            exit('Only VIDEO recitations are accepted for Muraja\'ah. Audio-only files are rejected — record yourself at a distance where your face and surroundings are visible.');
         }
 
         $upload_dir = dirname(__DIR__) . '/uploads/student_audio/';
         if (!is_dir($upload_dir)) mkdir($upload_dir, 0755, true);
 
-        $res = audio_save_upload($_FILES['audio']['tmp_name'], $upload_dir, 'mem_' . $student_id . '_', $_FILES['audio']['name']);
+        $res = audio_save_upload($_FILES['audio']['tmp_name'], $upload_dir, 'mem_vid_' . $student_id . '_', $_FILES['audio']['name']);
         if ($res['ok']) {
-            $sub = mem_submit_murajaah($conn, $student_id, 'audio', $res['file']);
+            $sub = mem_submit_murajaah($conn, $student_id, 'video', $res['file']);
             if (!$sub['ok']) {
                 if (is_file($upload_dir . $res['file'])) @unlink($upload_dir . $res['file']);
                 exit($sub['reason'] ?? 'Could not save the submission.');
@@ -66,7 +112,24 @@ if ($action === 'murajaah') {
         exit($res['error']);
     }
 
-    /* Live via WhatsApp */
+    /* Recited (or to be recited) in person — teacher confirms in the queue */
+    if ($session_type === 'inperson') {
+        $sub = mem_submit_murajaah($conn, $student_id, 'inperson', '');
+        if (!$sub['ok']) {
+            exit($sub['reason'] ?? 'Could not save the submission.');
+        }
+        exit('OK');
+    }
+
+    /* Pure audio is no longer accepted for Muraja'ah */
+    if ($session_type === 'audio') {
+        exit('Audio-only recitations are no longer accepted for Muraja\'ah. Please upload a VIDEO recording, schedule a live call, or recite in person.');
+    }
+
+    /* Live via WhatsApp (backwards compatible) */
+    if ($session_type !== 'live') {
+        exit('Unknown submission type.');
+    }
     $day = trim($_POST['day'] ?? '');
     $time_val = trim($_POST['time'] ?? '');
     if ($day === '' || $time_val === '') {

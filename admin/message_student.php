@@ -78,6 +78,12 @@ function student_last_academic_activity($conn, $student_id) {
     if (db_table_exists($conn, 'hafiz_weekly_tests')) {
         $queries[] = "SELECT MAX(submitted_at) t FROM hafiz_weekly_tests WHERE student_id = $student_id";
     }
+    if (db_table_exists($conn, 'quran_murajaah_sessions')) {
+        $queries[] = "SELECT MAX(submitted_at) t FROM quran_murajaah_sessions WHERE student_id = $student_id";
+    }
+    if (db_table_exists($conn, 'mem_assistance_requests')) {
+        $queries[] = "SELECT MAX(created_at) t FROM mem_assistance_requests WHERE student_id = $student_id";
+    }
 
     foreach ($queries as $sql) {
         try {

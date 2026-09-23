@@ -51,6 +51,29 @@ switch ($action) {
         $reply($res['ok'] ? 'OK' : ($res['reason'] ?? 'Could not adjust.'), $res['ok']);
         break;
 
+    /* Teacher confirms an in-person Muraja'ah recitation — create/accept + pass */
+    case 'complete_murajaah':
+        $state = mem_get_state($conn, $student_id);
+        if (!$state || $state['status'] !== 'active') { $reply('Memorization is not active.', false); }
+        $task = mem_compute_task($conn, $state);
+        if ($task['task_type'] !== 'murajaah') {
+            $reply("Today is a " . ucfirst($task['task_type']) . " day — cannot mark Muraja'ah complete.", false);
+        }
+        $admin_id = (int)($_SESSION['user_id'] ?? 0);
+        $existing = mem_current_murajaah($conn, $state);
+        if ($existing && $existing['status'] === 'pending') {
+            $session_id = (int)$existing['id'];
+        } elseif (!$existing || $existing['status'] === 'failed') {
+            $ins = mem_submit_murajaah($conn, $student_id, 'inperson', '');
+            if (!$ins['ok']) { $reply($ins['reason'] ?? 'Could not record the session.', false); }
+            $session_id = (int)$ins['session_id'];
+        } else {
+            $reply('This Muraja\'ah session is already passed.', false);
+        }
+        $res = mem_mark_murajaah($conn, $session_id, 'passed', 'Recited in person to teacher', null, $admin_id);
+        $reply($res['ok'] ? 'OK' : ($res['reason'] ?? 'Could not mark complete.'), $res['ok']);
+        break;
+
     case 'pause':
         $reply(mem_pause($conn, $student_id) ? 'OK' : 'Could not pause.', true);
         break;

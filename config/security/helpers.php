@@ -953,7 +953,56 @@ if (!function_exists('teaching_pending_count')) {
                 )->fetch_assoc()['c'];
             }
 
-            return $subs + $lessons + $live + $murajaah;
+            $assistance = 0;
+            if (db_table_exists($conn, 'mem_assistance_requests')) {
+                $assistance = (int)$conn->query(
+                    "SELECT COUNT(*) c FROM mem_assistance_requests WHERE status = 'pending'"
+                )->fetch_assoc()['c'];
+            }
+
+            $hafiz_sessions = 0;
+            if (db_table_exists($conn, 'hafiz_sessions')) {
+                $hafiz_sessions = (int)$conn->query(
+                    "SELECT COUNT(*) c FROM hafiz_sessions WHERE status = 'pending'"
+                )->fetch_assoc()['c'];
+            }
+
+            $hafiz_tests = 0;
+            if (db_table_exists($conn, 'hafiz_weekly_tests')) {
+                $hafiz_tests = (int)$conn->query(
+                    "SELECT COUNT(*) c FROM hafiz_weekly_tests WHERE status = 'submitted'"
+                )->fetch_assoc()['c'];
+            }
+
+            return $subs + $lessons + $live + $murajaah + $assistance + $hafiz_sessions + $hafiz_tests;
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+}
+
+if (!function_exists('memorization_pending_count')) {
+    /**
+     * Count of pending Qur'an memorization items (muraja'ah submissions awaiting review
+     * plus student recitation assistance requests). Used for admin sidebar badge.
+     */
+    function memorization_pending_count($conn) {
+        try {
+            $murajaah = 0;
+            if (db_table_exists($conn, 'quran_murajaah_sessions')) {
+                $murajaah = (int)$conn->query(
+                    "SELECT COUNT(*) c FROM quran_murajaah_sessions WHERE status = 'pending'"
+                )->fetch_assoc()['c'];
+            }
+
+            $assistance = 0;
+            if (db_table_exists($conn, 'mem_assistance_requests')) {
+                $assistance = (int)$conn->query(
+                    "SELECT COUNT(*) c FROM mem_assistance_requests WHERE status = 'pending'"
+                )->fetch_assoc()['c'];
+            }
+
+            return $murajaah + $assistance;
         } catch (Throwable $e) {
             return 0;
         }
@@ -2824,7 +2873,29 @@ if (!function_exists('maybe_auto_request_next_lesson')) {
             ? max($plan_start_verse, (int)$last_accepted['to_verse'] + 1)
             : $plan_start_verse;
 
-        if ($from_verse > $total_verses) return 'skipped_surah_complete';
+        if ($from_verse > $total_verses) {
+            /* Last recitation of the surah accepted — close the plan so the
+               24-hour completed-cycle audio cleanup can start counting. */
+            try {
+                $has_completed_at = db_column_exists($conn, 'student_learning', 'completed_at');
+                if ($has_completed_at) {
+                    $upd = $conn->prepare("
+                        UPDATE student_learning
+                        SET status = 'completed', completed_at = COALESCE(completed_at, NOW())
+                        WHERE student_id = ? AND surah_id = ? AND status = 'active'
+                    ");
+                } else {
+                    $upd = $conn->prepare("
+                        UPDATE student_learning
+                        SET status = 'completed'
+                        WHERE student_id = ? AND surah_id = ? AND status = 'active'
+                    ");
+                }
+                $upd->bind_param("ii", $student_id, $surah_id);
+                $upd->execute();
+            } catch (Throwable $e) { /* ignore */ }
+            return 'skipped_surah_complete';
+        }
 
         $to_verse = min($from_verse + $verses_per_request - 1, $total_verses);
 
@@ -3769,7 +3840,7 @@ if (!function_exists('mem_submit_murajaah')) {
             return ['ok' => false, 'reason' => 'This session was already accepted.', 'task' => $task, 'state' => $state, 'session' => $existing];
         }
         $day = (int)$task['day_number'];
-        $stype = $session_type === 'live' ? 'live' : 'audio';
+        $stype = in_array($session_type, ['video', 'live', 'inperson', 'audio'], true) ? $session_type : 'audio';
         $afile = (string)$audio_file;
         try {
             $st = $conn->prepare("INSERT INTO quran_murajaah_sessions
@@ -4160,6 +4231,318 @@ if (!function_exists('mem_students_snapshot')) {
             return $out;
         } catch (Throwable $e) {
             return [];
+        }
+    }
+}
+
+/* =====================================================
+   MEMORIZER RECITATION ASSISTANCE REQUESTS (Bug #1)
+   ===================================================== */
+
+if (!function_exists('mem_assistance_current')) {
+    /**
+     * Latest assistance request for a student's page. When $status is set,
+     * only requests in that state are considered (e.g. 'pending').
+     */
+    function mem_assistance_current($conn, $student_id, $start_page, $status = null) {
+        $student_id = (int)$student_id;
+        $start_page = (int)$start_page;
+        if (!db_table_exists($conn, 'mem_assistance_requests')) return null;
+        try {
+            $where = 'student_id = ? AND start_page = ?';
+            $types = 'ii';
+            $vals  = [$student_id, $start_page];
+            if ($status !== null && $status !== '*') {
+                $where .= ' AND status = ?';
+                $types .= 's';
+                $vals[] = (string)$status;
+            }
+            $stmt = $conn->prepare("SELECT * FROM mem_assistance_requests
+                WHERE $where
+                ORDER BY id DESC LIMIT 1");
+            $stmt->bind_param($types, ...$vals);
+            $stmt->execute();
+            $r = $stmt->get_result()->fetch_assoc();
+            return $r ?: null;
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+}
+
+if (!function_exists('mem_assistance_pending')) {
+    /**
+     * Pending assistance requests joined with student info (admin Section G).
+     */
+    function mem_assistance_pending($conn) {
+        if (!db_table_exists($conn, 'mem_assistance_requests')) return [];
+        try {
+            $res = $conn->query("
+                SELECT r.*, u.name, u.email, u.phone
+                FROM mem_assistance_requests r
+                JOIN users u ON u.id = r.student_id
+                WHERE r.status = 'pending'
+                ORDER BY r.id ASC
+            ");
+            $out = [];
+            if ($res) while ($r = $res->fetch_assoc()) $out[] = $r;
+            return $out;
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+}
+
+if (!function_exists('mem_assistance_submit')) {
+    /**
+     * Student requests a teacher recitation for today's page.
+     * $data keys: task_day, start_page, end_page, note.
+     */
+    function mem_assistance_submit($conn, $student_id, array $data) {
+        $student_id = (int)$student_id;
+        if (!db_table_exists($conn, 'mem_assistance_requests')) {
+            return ['ok' => false, 'reason' => 'Assistance is not available yet.'];
+        }
+        $task_day = max(1, (int)($data['task_day'] ?? 0));
+        $sp = max(1, (int)($data['start_page'] ?? 0));
+        $ep = max(1, (int)($data['end_page'] ?? 0));
+        $note = trim((string)($data['note'] ?? ''));
+        if ($sp <= 0) return ['ok' => false, 'reason' => 'Missing page number.'];
+
+        $dup = mem_assistance_current($conn, $student_id, $sp, 'pending');
+        if ($dup) return ['ok' => false, 'reason' => 'You already have a pending assistance request for this page.'];
+
+        try {
+            $st = $conn->prepare("INSERT INTO mem_assistance_requests
+                (student_id, task_day, start_page, end_page, note, status, created_at)
+                VALUES (?, ?, ?, ?, ?, 'pending', NOW())");
+            $st->bind_param("iiiis", $student_id, $task_day, $sp, $ep, $note);
+            $st->execute();
+            return ['ok' => true, 'id' => (int)$conn->insert_id, 'reason' => ''];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'reason' => 'Could not save the request.'];
+        }
+    }
+}
+
+if (!function_exists('mem_mark_assistance_fulfilled')) {
+    /**
+     * Admin fulfils an assistance request with optional audio + notes.
+     */
+    function mem_mark_assistance_fulfilled($conn, $request_id, $admin_id = 0, $admin_audio = null, $admin_notes = '') {
+        $request_id = (int)$request_id;
+        $admin_id = (int)$admin_id;
+        if ($request_id <= 0 || !db_table_exists($conn, 'mem_assistance_requests')) return false;
+        $admin_audio = $admin_audio === null || $admin_audio === '' ? null : (string)$admin_audio;
+        $admin_notes = trim((string)$admin_notes);
+        try {
+            $st = $conn->prepare("UPDATE mem_assistance_requests
+                SET status = 'done', admin_audio = ?, admin_notes = ?, resolved_at = NOW(), resolved_by = ?
+                WHERE id = ? AND status = 'pending'");
+            $st->bind_param("ssii", $admin_audio, $admin_notes, $admin_id, $request_id);
+            return $st->execute();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+/* =====================================================
+   MEMORIZER FEEDBACK (Bug #4)
+   ===================================================== */
+
+if (!function_exists('mem_recent_murajaah_feedback')) {
+    /**
+     * Recent reviewed Muraja'ah sessions for the student feedback card.
+     */
+    function mem_recent_murajaah_feedback($conn, $student_id, $limit = 5) {
+        $student_id = (int)$student_id;
+        $limit = max(1, (int)$limit);
+        $out = [];
+        if (!db_table_exists($conn, 'quran_murajaah_sessions')) return $out;
+        try {
+            $stmt = $conn->prepare("SELECT * FROM quran_murajaah_sessions
+                WHERE student_id = ? AND status IN ('passed','failed')
+                ORDER BY COALESCE(reviewed_at, submitted_at) DESC
+                LIMIT ?");
+            $stmt->bind_param("ii", $student_id, $limit);
+            $stmt->execute();
+            while ($r = $stmt->get_result()->fetch_assoc()) $out[] = $r;
+        } catch (Throwable $e) { /* ignore */ }
+        return $out;
+    }
+}
+
+/* =====================================================
+   MEDIA AUTO-DELETION SWEEPS (Feature #5 + Bug #2 cleanup)
+   ===================================================== */
+
+if (!function_exists('mem_cleanup_expired_murajaah')) {
+    /**
+     * Delete Muraja'ah submission files older than 36 hours. Unlinks the
+     * physical file and NULLs audio_file — the session row, grades and
+     * written feedback remain in the academic history.
+     */
+    function mem_cleanup_expired_murajaah($conn, $hours = 36) {
+        if (!db_table_exists($conn, 'quran_murajaah_sessions')) return 0;
+        $hours = max(1, (int)$hours);
+        $removed = 0;
+        try {
+            $stmt = $conn->prepare("SELECT id, audio_file FROM quran_murajaah_sessions
+                WHERE audio_file IS NOT NULL
+                  AND audio_file != ''
+                  AND submitted_at <= NOW() - INTERVAL ? HOUR
+                LIMIT 100");
+            $stmt->bind_param("i", $hours);
+            $stmt->execute();
+            $rows = $stmt->get_result();
+            $base = dirname(__DIR__, 2) . '/uploads/student_audio/';
+            $upd = $conn->prepare("UPDATE quran_murajaah_sessions SET audio_file = NULL WHERE id = ?");
+            while ($r = $rows->fetch_assoc()) {
+                $name = (string)$r['audio_file'];
+                if ($name !== '') {
+                    $path = $base . basename($name);
+                    if (is_file($path)) @unlink($path);
+                }
+                $id = (int)$r['id'];
+                $upd->bind_param("i", $id);
+                $upd->execute();
+                if ($upd->affected_rows > 0) $removed++;
+            }
+        } catch (Throwable $e) { /* ignore */ }
+        return $removed;
+    }
+}
+
+if (!function_exists('cleanup_completed_cycle_audios')) {
+    /**
+     * Non-Hafiz / Non-Memorizer learning cycle audio auto-deletion.
+     * Once a plan is 'completed' and completed_at is older than 24 hours,
+     * unlink every related student/admin audio file and clear the DB fields.
+     * Recitation rows (scores, ratings, written feedback) are preserved;
+     * audio_cleaned prevents infinite re-scans.
+     */
+    function cleanup_completed_cycle_audios($conn, $hours = 24) {
+        if (!db_table_exists($conn, 'student_learning')) return 0;
+        if (!db_column_exists($conn, 'student_learning', 'audio_cleaned')) return 0;
+        $hours = max(1, (int)$hours);
+        $removed = 0;
+        try {
+            $stmt = $conn->prepare("SELECT id, student_id, surah_id FROM student_learning
+                WHERE status = 'completed'
+                  AND audio_cleaned = 0
+                  AND completed_at IS NOT NULL
+                  AND completed_at <= NOW() - INTERVAL ? HOUR
+                LIMIT 50");
+            $stmt->bind_param("i", $hours);
+            $stmt->execute();
+            $plans = $stmt->get_result();
+
+            $student_base  = dirname(__DIR__, 2) . '/uploads/student_audio/';
+            $admin_base    = dirname(__DIR__, 2) . '/uploads/admin_audio/';
+            $feedback_base = dirname(__DIR__, 2) . '/uploads/admin_feedback/';
+
+            while ($p = $plans->fetch_assoc()) {
+                $plan_id = (int)$p['id'];
+                $student_id = (int)$p['student_id'];
+                $surah_id = (int)$p['surah_id'];
+
+                /* Lesson ids for this plan via the (student, surah) join */
+                $lessons = [];
+                $ls = $conn->prepare("SELECT id FROM lessons WHERE student_id = ? AND surah_id = ?");
+                $ls->bind_param("ii", $student_id, $surah_id);
+                $ls->execute();
+                $res = $ls->get_result();
+                while ($lr = $res->fetch_assoc()) $lessons[] = (int)$lr['id'];
+
+                if (!empty($lessons)) {
+                    $in = implode(',', $lessons);
+
+                    /* admin_audio (lesson audio): delete rows + files */
+                    $q = $conn->query("SELECT id, audio_file FROM admin_audio WHERE learning_plan_id IN ($in)");
+                    if ($q) {
+                        $ids = [];
+                        while ($a = $q->fetch_assoc()) {
+                            $name = (string)$a['audio_file'];
+                            if ($name !== '') {
+                                $path = $admin_base . basename($name);
+                                if (is_file($path)) @unlink($path);
+                            }
+                            $ids[] = (int)$a['id'];
+                        }
+                        if (!empty($ids)) {
+                            $conn->query("DELETE FROM admin_audio WHERE id IN (" . implode(',', $ids) . ")");
+                        }
+                    }
+
+                    /* student_recitation: keep rows, unlink files, null columns */
+                    $qs = $conn->query("SELECT id, audio_file, admin_audio_feedback FROM student_recitation WHERE learning_plan_id IN ($in)");
+                    if ($qs) {
+                        $rids = [];
+                        while ($s = $qs->fetch_assoc()) {
+                            $af = (string)$s['audio_file'];
+                            if ($af !== '') {
+                                $path = $student_base . basename($af);
+                                if (is_file($path)) @unlink($path);
+                            }
+                            $fbf = (string)$s['admin_audio_feedback'];
+                            if ($fbf !== '') {
+                                $path = $feedback_base . basename($fbf);
+                                if (is_file($path)) @unlink($path);
+                            }
+                            $rids[] = (int)$s['id'];
+                        }
+                        if (!empty($rids)) {
+                            $conn->query("UPDATE student_recitation
+                                SET audio_file = '', admin_audio_feedback = NULL
+                                WHERE id IN (" . implode(',', $rids) . ")");
+                        }
+                    }
+                }
+
+                $c = $conn->prepare("UPDATE student_learning SET audio_cleaned = 1 WHERE id = ?");
+                $c->bind_param("i", $plan_id);
+                $c->execute();
+                $removed++;
+            }
+        } catch (Throwable $e) { /* ignore */ }
+        return $removed;
+    }
+}
+
+if (!function_exists('run_opportunistic_cleanup')) {
+    /**
+     * Run periodic media cleanups: Muraja'ah submissions (36h) and
+     * completed learning-cycle audios (24h). Throttled to at most once
+     * every 15 minutes. Uses UPDATE-then-INSERT so the timestamp marker
+     * works whether or not setting_key is unique.
+     */
+    function run_opportunistic_cleanup($conn) {
+        try {
+            $last_run = (string)setting($conn, 'last_audio_video_cleanup', '');
+            if ($last_run !== '' && strtotime($last_run) > time() - 900) {
+                return; // throttled — ran less than 15 minutes ago
+            }
+            /* Stamp the time first to prevent concurrent page loads duplicating work */
+            try {
+                $esc = $conn->real_escape_string(date('Y-m-d H:i:s'));
+                $chk = $conn->query("SELECT 1 FROM app_settings WHERE setting_key = 'last_audio_video_cleanup' LIMIT 1");
+                if ($chk && $chk->num_rows > 0) {
+                    $conn->query("UPDATE app_settings SET setting_value = '$esc' WHERE setting_key = 'last_audio_video_cleanup'");
+                } else {
+                    $conn->query("INSERT INTO app_settings (setting_key, setting_value) VALUES ('last_audio_video_cleanup', '$esc')");
+                }
+            } catch (Throwable $e) { /* ignore */ }
+
+            if (function_exists('mem_cleanup_expired_murajaah')) {
+                mem_cleanup_expired_murajaah($conn, 36);
+            }
+            if (function_exists('cleanup_completed_cycle_audios')) {
+                cleanup_completed_cycle_audios($conn, 24);
+            }
+        } catch (Throwable $e) {
+            /* Failsafe: never break page rendering */
+            error_log('opportunistic_cleanup: ' . $e->getMessage());
         }
     }
 }

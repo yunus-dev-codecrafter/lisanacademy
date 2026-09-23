@@ -1,8 +1,12 @@
 <?php
-require '../config/security/helpers.php';
+require_once __DIR__ . '/../config/security/helpers.php';
+require_once __DIR__ . '/../auth/auth_check.php';
+require_once __DIR__ . '/../config/db.php';
+
 require_role('student');
-require '../auth/auth_check.php';
-require '../config/db.php';
+
+/* Opportunistic media cleanup: Muraja'ah videos (36h) + completed-cycle audios (24h) */
+run_opportunistic_cleanup($conn);
 
 $student_id = (int)$_SESSION['user_id'];
 
@@ -65,7 +69,12 @@ if ($active_plan) {
 
     // Auto-complete plan if finished
     if ($completed_requests >= $total_requests) {
-        $stmt = $conn->prepare("UPDATE student_learning SET status='completed', completed_requests=? WHERE id=?");
+        $has_completed_at = function_exists('db_column_exists') && db_column_exists($conn, 'student_learning', 'completed_at');
+        if ($has_completed_at) {
+            $stmt = $conn->prepare("UPDATE student_learning SET status='completed', completed_at = COALESCE(completed_at, NOW()), completed_requests=? WHERE id=?");
+        } else {
+            $stmt = $conn->prepare("UPDATE student_learning SET status='completed', completed_requests=? WHERE id=?");
+        }
         $stmt->bind_param("ii", $completed_requests, $plan_id);
         $stmt->execute();
         $active_plan = null; // remove active plan so student can start new

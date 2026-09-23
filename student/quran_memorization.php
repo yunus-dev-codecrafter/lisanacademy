@@ -7,6 +7,9 @@ require_once __DIR__ . '/../config/audio_fix.php';
 require_role('student');
 $student_id = (int)$_SESSION['user_id'];
 
+/* Opportunistic media cleanup: Muraja'ah videos (36h) + completed-cycle audios (24h) */
+run_opportunistic_cleanup($conn);
+
 /* Guard: must be a Memorizer */
 if (!student_is_memorizing($conn, $student_id)) {
     redirect('dashboard.php');
@@ -28,8 +31,14 @@ $session = $gate['session'] ?? null;
 $summary = mem_progress_summary($conn, $student_id);
 $statuses = mem_page_statuses($conn, $student_id);
 $history = mem_history($conn, $student_id, 12);
+$recent_feedback = mem_recent_murajaah_feedback($conn, $student_id, 5);
 
-$whatsapp_number = setting($conn, 'whatsapp_number', '2348029979040');
+/* Recitation-assistance request state for today's memorization page */
+$assist = null;
+if ($gate['state'] === 'memorization' && $task) {
+    $assist = mem_assistance_current($conn, $student_id, (int)$task['start_page'], '*');
+}
+
 $today_page = ($task && $task['task_type'] === 'memorization') ? (int)$task['start_page'] : 0;
 ?>
 <!DOCTYPE html>
@@ -51,6 +60,12 @@ $today_page = ($task && $task['task_type'] === 'memorization') ? (int)$task['sta
     <div class="alert alert-success animate-rise" style="margin-bottom:14px;">
         <?= ui_icon('check-circle', 18) ?>
         <span style="flex:1;"><strong>Page <?= (int)$_GET['marked'] ?> marked as memorized!</strong> Progress has advanced to your next scheduled task.</span>
+    </div>
+<?php endif; ?>
+<?php if (isset($_GET['assist_requested'])): ?>
+    <div class="alert alert-success animate-rise" style="margin-bottom:14px;">
+        <?= ui_icon('check-circle', 18) ?>
+        <span style="flex:1;"><strong>Assistance request sent!</strong> Your teacher has been notified and will soon recite today's page to you.</span>
     </div>
 <?php endif; ?>
 <?php if (!empty($_GET['error'])): ?>
@@ -120,6 +135,30 @@ $today_page = ($task && $task['task_type'] === 'memorization') ? (int)$task['sta
                 <input type="hidden" name="page" value="<?= (int)$task['start_page'] ?>">
                 <button class="btn btn-gold btn-lg" type="submit"><?= ui_icon('check-circle', 18) ?> Mark as Memorized</button>
             </form>
+
+            <?php if ($assist): ?>
+                <?php if ($assist['status'] === 'pending'): ?>
+                    <div class="alert alert-info" style="margin:16px 0 0;text-align:left;">
+                        <?= ui_icon('clock', 16) ?>
+                        <span style="flex:1;"><strong>Assistance Requested</strong> — your teacher has been notified and will recite Page <?= (int)$task['start_page'] ?> to you. Keep practising in the meantime.</span>
+                    </div>
+                <?php else: ?>
+                    <div class="alert alert-success" style="margin:16px 0 0;text-align:left;">
+                        <?= ui_icon('check-circle', 16) ?>
+                        <span style="flex:1;"><strong>Teacher Recitation Available for Page <?= (int)$task['start_page'] ?></strong>
+                        <?php if (!empty($assist['admin_audio'])): ?>
+                            <span style="display:block;margin-top:6px;"><?= media_player_html($assist['admin_audio'], '../uploads/admin_feedback/') ?></span>
+                        <?php endif; ?>
+                        <?php if (!empty($assist['admin_notes'])): ?>
+                            <span class="small" style="display:block;margin-top:6px;">Teacher notes: &ldquo;<?= htmlspecialchars($assist['admin_notes']) ?>&rdquo;</span>
+                        <?php endif; ?>
+                        </span>
+                    </div>
+                <?php endif; ?>
+            <?php else: ?>
+                <button class="btn btn-ghost btn-lg" style="margin-top:14px;" onclick="openAssistModal()"><?= ui_icon('headphones', 18) ?> Need Teacher to Recite This Page? Request Assistance</button>
+            <?php endif; ?>
+
             <p class="small text-muted" style="margin:12px 0 0;">Memorize the page from the Mushaf, then mark it done. You control the pace.</p>
         </div>
     </div>
@@ -156,7 +195,7 @@ $today_page = ($task && $task['task_type'] === 'memorization') ? (int)$task['sta
                 <span style="flex:1;">
                     <strong>Revision not accepted — please review the feedback, practice <?= $range_hint ?>, and re-submit.</strong>
                     <?php if ($session && !empty($session['feedback'])): ?>
-                        <div class="small" style="margin-top:6px;">Teacher notes: &ldquo;<?= htmlspecialchars($session['feedback']) ?>&rdquo;</div>
+                        <span class="small" style="display:block;margin-top:6px;">Teacher notes: &ldquo;<?= htmlspecialchars($session['feedback']) ?>&rdquo;</span>
                     <?php endif; ?>
                 </span>
             </div>
@@ -172,20 +211,20 @@ $today_page = ($task && $task['task_type'] === 'memorization') ? (int)$task['sta
                 <p class="small text-muted" style="margin:8px 0 0;">Split session day — recite the <?= $task['day_session'] === 'morning' ? 'Morning' : 'Evening' ?> portion from memory.
                 <?php if ($task['day_session'] === 'morning'): ?>Your Evening session unlocks once the teacher passes the Morning one.<?php endif; ?></p>
             <?php else: ?>
-                <p class="small text-muted" style="margin:8px 0 0;">Recite this range from memory to your teacher.</p>
+                <p class="small text-muted" style="margin:8px 0 0;">Recite this range from memory to your teacher — video, live, or in person.</p>
             <?php endif; ?>
 
             <?php if ($gate['state'] === 'retake'): ?>
                 <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:16px;">
-                    <button class="btn btn-danger btn-lg" onclick="openReciteModal('live')"><?= ui_icon('refresh', 18) ?> Retake via WhatsApp</button>
-                    <button class="btn btn-lg" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;" onclick="openReciteModal('audio')"><?= ui_icon('mic', 18) ?> Retake: Record Audio</button>
-                    <button class="btn btn-lg" onclick="openReciteModal('upload')"><?= ui_icon('upload', 18) ?> Retake: Upload</button>
+                    <button class="btn btn-lg" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;" onclick="openReciteModal('upload')"><?= ui_icon('video', 18) ?> Retake: Upload Video</button>
+                    <button class="btn btn-gold btn-lg" onclick="openReciteModal('live')"><?= ui_icon('send', 18) ?> Retake via WhatsApp</button>
+                    <button class="btn btn-lg" onclick="openReciteModal('inperson')"><?= ui_icon('user', 18) ?> Recited In Person</button>
                 </div>
             <?php elseif ($gate['state'] === 'awaiting'): ?>
                 <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:16px;">
-                    <button class="btn btn-gold btn-lg" onclick="openReciteModal('live')"><?= ui_icon('video', 18) ?> Live via WhatsApp</button>
-                    <button class="btn btn-lg" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;" onclick="openReciteModal('audio')"><?= ui_icon('mic', 18) ?> Record Audio</button>
-                    <button class="btn btn-lg" onclick="openReciteModal('upload')"><?= ui_icon('upload', 18) ?> Upload Recording</button>
+                    <button class="btn btn-lg" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;" onclick="openReciteModal('upload')"><?= ui_icon('video', 18) ?> Upload Video</button>
+                    <button class="btn btn-gold btn-lg" onclick="openReciteModal('live')"><?= ui_icon('send', 18) ?> Live via WhatsApp</button>
+                    <button class="btn btn-lg" onclick="openReciteModal('inperson')"><?= ui_icon('user', 18) ?> Recited In Person</button>
                 </div>
             <?php else: ?>
                 <p class="small" style="margin:12px 0 0;color:var(--gold-deep);"><?= ui_icon('clock', 14) ?> Submitted at <?= date('d M Y, g:i A', strtotime($session['submitted_at'])) ?> — awaiting teacher review.</p>
@@ -245,7 +284,7 @@ $today_page = ($task && $task['task_type'] === 'memorization') ? (int)$task['sta
             <span class="small text-muted">Pages 1–604</span>
         </div>
 
-        <div class="mem-grid" style="display:flex;flex-wrap:wrap;gap:3px;padding:10px 0;">
+        <div class="mem-grid">
             <?php for ($p = 1; $p <= 604; $p++):
                 $cls = 'page-cell page-locked';
                 switch ($statuses[$p]) {
@@ -261,13 +300,40 @@ $today_page = ($task && $task['task_type'] === 'memorization') ? (int)$task['sta
         </div>
 
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
-            <span class="small"><span class="page-cell mem-revised" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Revised</span>
-            <span class="small"><span class="page-cell page-done" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Memorized</span>
-            <span class="small"><span class="page-cell mem-under" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Under Revision</span>
-            <span class="small"><span class="page-cell page-current" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Today</span>
-            <span class="small"><span class="page-cell page-locked" style="display:inline-flex;width:18px;height:18px;font-size:0.6rem;vertical-align:middle;"></span> Not memorized</span>
+            <span class="small"><span class="cell-swatch mem-revised"></span> Revised</span>
+            <span class="small"><span class="cell-swatch page-done"></span> Memorized</span>
+            <span class="small"><span class="cell-swatch mem-under"></span> Under Revision</span>
+            <span class="small"><span class="cell-swatch page-current"></span> Today</span>
+            <span class="small"><span class="cell-swatch page-locked"></span> Not memorized</span>
         </div>
     </div>
+
+    <!-- =================== R E C E N T   M U R A J A ' A H   F E E D B A C K =================== -->
+    <?php if (!empty($recent_feedback)): ?>
+    <div class="card animate-rise d4" style="margin-top:16px;">
+        <div class="card-title">
+            <h3 style="margin:0;"><?= ui_icon('chat', 18) ?> Recent Muraja'ah Reviews &amp; Teacher Feedback</h3>
+        </div>
+        <?php $first = true; foreach ($recent_feedback as $fb): ?>
+            <div style="padding:12px 0;border-top:1px solid var(--border);<?= $first ? 'border-top:none;padding-top:0;' : '' ?>">
+                <?php $first = false; ?>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                    <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;">Day <?= (int)$fb['task_day'] ?></span>
+                    <span class="small" style="font-weight:600;">Pages <?= (int)$fb['start_page'] ?>–<?= (int)$fb['end_page'] ?></span>
+                    <span class="badge <?= $fb['status'] === 'passed' ? 'badge-green' : 'badge-red' ?>"><?= $fb['status'] === 'passed' ? 'Passed' : 'Needs Work' ?></span>
+                    <span class="small text-muted"><?= date('d M Y', strtotime($fb['reviewed_at'] ?: $fb['submitted_at'])) ?></span>
+                </div>
+                <?php if (!empty($fb['feedback'])): ?>
+                    <p class="small" style="margin:8px 0 0;">Teacher notes: &ldquo;<?= htmlspecialchars($fb['feedback']) ?>&rdquo;</p>
+                <?php endif; ?>
+                <?php if (!empty($fb['admin_audio_feedback'])): ?>
+                    <p class="small text-muted" style="margin:8px 0 2px;">Teacher audio feedback:</p>
+                    <?= media_player_html($fb['admin_audio_feedback'], '../uploads/admin_feedback/') ?>
+                <?php endif; ?>
+            </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
 
     <!-- =================== H I S T O R Y =================== -->
     <?php if (!empty($history)): ?>
@@ -309,6 +375,20 @@ $today_page = ($task && $task['task_type'] === 'memorization') ? (int)$task['sta
 
 <?php endif; ?>
 
+<!-- =================== A S S I S T   M O D A L =================== -->
+<?php if ($gate['state'] === 'memorization' && !$assist && $task): ?>
+<div class="modal" id="assistModal">
+    <div class="modal-content" style="max-width:460px;">
+        <span class="modal-close" onclick="closeAssistModal()">&times;</span>
+        <h3 style="margin:0 0 6px;">Request Recitation Assistance</h3>
+        <p class="small text-muted" style="margin:0 0 14px;">Your teacher will be notified and can recite today's page (Page <?= (int)$task['start_page'] ?>) to you — over a call or with an audio recitation.</p>
+        <textarea id="assistNote" class="form-textarea" rows="3" placeholder="Any specific verses or tajweed questions? (optional)"></textarea>
+        <div id="assistProgress" style="display:none;" class="small text-muted">Sending request...</div>
+        <button class="btn btn-gold btn-block" style="margin-top:12px;" onclick="sendAssist()"><?= ui_icon('send', 16) ?> Send Request</button>
+    </div>
+</div>
+<?php endif; ?>
+
 <!-- =================== M U R A J A ' A H   M O D A L =================== -->
 <?php if (in_array($gate['state'], ['awaiting', 'retake'], true)): ?>
 <div class="modal" id="reciteModal">
@@ -317,26 +397,16 @@ $today_page = ($task && $task['task_type'] === 'memorization') ? (int)$task['sta
         <h3 style="margin:0 0 6px;">Muraja'ah: <?= $range_hint ?></h3>
         <p class="small text-muted" style="margin:0 0 16px;" id="reciteModeText">Choose how you want to recite this range from memory.</p>
 
-        <div id="audioPanel" style="display:none;">
-            <p class="small" style="margin:0 0 12px;">Record yourself reciting <?= $range_hint ?> from memory.</p>
-            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-                <button class="btn" type="button" id="startRecBtn" onclick="startRecording()"><?= ui_icon('mic', 16) ?> Start Recording</button>
-                <button class="btn btn-danger" type="button" id="stopRecBtn" onclick="stopRecording()" disabled><?= ui_icon('stop', 16) ?> Stop</button>
-            </div>
-            <audio id="recAudio" controls style="display:none;width:100%;"></audio>
-            <div id="uploadProgress" style="display:none;" class="small text-muted">Uploading...</div>
-            <button class="btn btn-gold btn-block" id="sendAudioBtn" style="display:none;margin-top:10px;" onclick="sendAudio()"><?= ui_icon('send', 16) ?> Submit Recitation</button>
-        </div>
-
         <div id="uploadPanel" style="display:none;">
-            <p class="small" style="margin:0 0 12px;">Record <?= $range_hint ?> on your device (Voice Memo or camera video), then choose the file to upload it.</p>
+            <p class="small" style="margin:0 0 12px;">Record a VIDEO of yourself reciting <?= $range_hint ?> from memory — sitting at a distance where your <strong>face and surroundings are fully visible</strong>.</p>
+            <div class="alert alert-warning" style="margin:0 0 10px;padding:8px 10px;"><?= ui_icon('alert', 14) ?> Audio-only and selfie recordings are strictly rejected. Supported: MP4, MOV, M4V, 3GP.</div>
             <div class="form-group">
-                <label class="form-label">Audio / Video File</label>
-                <input class="form-input" type="file" id="uploadFile" accept="audio/*,video/*,.mp3,.m4a,.wav,.ogg,.webm,.aac,.mp4,.m4v,.mov,.3gp" required>
+                <label class="form-label">Video File</label>
+                <input class="form-input" type="file" id="uploadFile" accept=".mp4,.mov,.m4v,.3gp,.3gpp" required>
             </div>
-            <audio id="uploadPreview" controls style="display:none;width:100%;margin-top:8px;"></audio>
+            <video id="uploadVideoPreview" controls playsinline style="display:none;width:100%;max-width:400px;border-radius:8px;background:#000;margin-top:8px;"></video>
             <div id="uploadProgress2" style="display:none;" class="small text-muted">Uploading...</div>
-            <button class="btn btn-gold btn-block" style="margin-top:10px;" onclick="submitUpload()"><?= ui_icon('upload', 16) ?> Upload Recitation</button>
+            <button class="btn btn-gold btn-block" style="margin-top:10px;" onclick="submitUpload()"><?= ui_icon('upload', 16) ?> Upload Video Recitation</button>
         </div>
 
         <div id="livePanel" style="display:none;">
@@ -351,57 +421,69 @@ $today_page = ($task && $task['task_type'] === 'memorization') ? (int)$task['sta
             </div>
             <button class="btn btn-gold btn-block" onclick="sendLive()"><?= ui_icon('send', 16) ?> Schedule via WhatsApp</button>
         </div>
+
+        <div id="inpersonPanel" style="display:none;">
+            <p class="small" style="margin:0 0 12px;">You will recite <?= $range_hint ?> directly to your teacher during a class or in-person session.</p>
+            <div class="alert alert-info" style="margin:0 0 10px;padding:8px 10px;"><?= ui_icon('info', 14) ?> Once submitted, your teacher will confirm and mark this Muraja'ah complete.</div>
+            <button class="btn btn-gold btn-block" onclick="submitInPerson()"><?= ui_icon('check-circle', 16) ?> I recited / will recite in person</button>
+        </div>
     </div>
 </div>
 <?php endif; ?>
 
-<style>
-.mem-revised {
-    background: #a7f3d0;
-    color: #065f46;
-    border-color: #6ee7b7;
-    font-weight: 700;
-}
-.mem-under {
-    background: #ede9fe;
-    color: #5b21b6;
-    border-color: #c4b5fd;
-    font-weight: 700;
-}
-.page-current {
-    background: var(--gold-light, #fef3c7);
-    color: var(--gold-deep, #b45309);
-    border-color: var(--gold-300, #fbbf24);
-    font-weight: 800;
-    animation: pulse 2s infinite;
-}
-</style>
-
 <?php ui_page_end(); ?>
 
-<script src="/assets/js/recorder.js"></script>
 <script>
 let currentMode = '';
-let mediaRecorder = null;
-let audioBlobs = [];
-let recordedBlob = null;
+
+function openAssistModal() {
+    var m = document.getElementById('assistModal');
+    if (m) m.classList.add('open');
+}
+
+function closeAssistModal() {
+    var m = document.getElementById('assistModal');
+    if (m) m.classList.remove('open');
+}
+
+function sendAssist() {
+    var note = document.getElementById('assistNote') ? document.getElementById('assistNote').value : '';
+    var fd = new FormData();
+    fd.append('action', 'assist');
+    fd.append('note', note);
+    fd.append('ajax', '1');
+    var csrfInput = document.querySelector('[name=csrf_token]');
+    if (csrfInput) fd.append('csrf_token', csrfInput.value);
+
+    document.getElementById('assistProgress').style.display = 'block';
+
+    fetch('submit_memorization.php', {method: 'POST', body: fd})
+        .then(function(r) { return r.text(); })
+        .then(function(res) {
+            if (res.trim() === 'OK') { location.reload(); }
+            else { alert(res); document.getElementById('assistProgress').style.display = 'none'; }
+        })
+        .catch(function() { alert('Request failed. Please try again.'); document.getElementById('assistProgress').style.display = 'none'; });
+}
 
 function openReciteModal(mode) {
     currentMode = mode;
     document.getElementById('reciteModal').classList.add('open');
-    document.getElementById('audioPanel').style.display = mode === 'audio' ? 'block' : 'none';
     document.getElementById('uploadPanel').style.display = mode === 'upload' ? 'block' : 'none';
     document.getElementById('livePanel').style.display = mode === 'live' ? 'block' : 'none';
+    document.getElementById('inpersonPanel').style.display = mode === 'inperson' ? 'block' : 'none';
     if (mode === 'upload') {
         document.getElementById('uploadFile').value = '';
-        document.getElementById('uploadPreview').style.display = 'none';
+        document.getElementById('uploadVideoPreview').style.display = 'none';
         document.getElementById('uploadProgress2').style.display = 'none';
     }
     document.getElementById('reciteModeText').textContent = mode === 'live'
         ? 'Schedule a live Muraja\'ah assessment via WhatsApp.'
         : (mode === 'upload')
-            ? 'Upload a recording you made of this range from memory.'
-            : 'Record yourself reciting this range from memory.';
+            ? 'Upload a video of this range recited from memory.'
+            : (mode === 'inperson')
+                ? 'Recite this range to your teacher in person.'
+                : 'Choose how you want to recite this range from memory.';
 }
 
 function closeReciteModal() {
@@ -411,88 +493,39 @@ function closeReciteModal() {
 document.addEventListener('click', function(e) {
     var m = document.getElementById('reciteModal');
     if (m && m.classList.contains('open') && e.target === m) closeReciteModal();
+    var a = document.getElementById('assistModal');
+    if (a && a.classList.contains('open') && e.target === a) closeAssistModal();
 });
 document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closeReciteModal();
+    if (e.key === 'Escape') { closeReciteModal(); closeAssistModal(); }
 });
 
-const __picked = (window.Recorder ? Recorder.pick() : { mime: '', ext: 'webm' });
-const REC_MIME = __picked.mime;
-const REC_EXT = __picked.ext;
-const REC_MAX_MS = 15 * 60 * 1000;
-let recMaxTimer = null;
-
-function startRecording() {
-    if (!window.Recorder || !Recorder.supported()) { alert('Recording is not supported in this browser. Please use the Upload tab instead.'); return; }
-    navigator.mediaDevices.getUserMedia({audio: true}).then(function(stream) {
-        audioBlobs = [];
-        try { mediaRecorder = Recorder.create(stream, REC_MIME); }
-        catch (e) { alert('Could not start recording. Please use the Upload tab instead.'); stream.getTracks().forEach(function(t) { t.stop(); }); return; }
-        var mime = REC_MIME;
-        try { if (mediaRecorder.mimeType) mime = mediaRecorder.mimeType; } catch (e) {}
-        mediaRecorder._mime = mime;
-        mediaRecorder.ondataavailable = function(e) { if (e.data && e.data.size > 0) audioBlobs.push(e.data); };
-        mediaRecorder.onerror = function() { clearTimeout(recMaxTimer); alert('Recording failed. Please try again or use the Upload tab.'); };
-        mediaRecorder.onstop = function() {
-            clearTimeout(recMaxTimer);
-            var blob = Recorder.makeBlob(audioBlobs, mediaRecorder, mediaRecorder._mime);
-            if (!blob || blob.size === 0) { alert('Recording is empty. Please record again.'); return; }
-            recordedBlob = blob;
-            var audio = document.getElementById('recAudio');
-            audio.src = URL.createObjectURL(blob);
-            audio.style.display = 'block';
-            document.getElementById('sendAudioBtn').style.display = 'inline-flex';
-            stream.getTracks().forEach(function(t) { t.stop(); });
-        };
-        try { mediaRecorder.start(1000); }
-        catch (e) { alert('Could not start recording. Please use the Upload tab instead.'); stream.getTracks().forEach(function(t) { t.stop(); }); return; }
-        recMaxTimer = setTimeout(function() {
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-                mediaRecorder.stop();
-                alert('Recording stopped automatically after 15 minutes.');
-            }
-        }, REC_MAX_MS);
-        document.getElementById('startRecBtn').disabled = true;
-        document.getElementById('stopRecBtn').disabled = false;
-    }).catch(function() {
-        alert('Microphone access denied. Please allow microphone access and try again.');
-    });
-}
-
-function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
-    document.getElementById('startRecBtn').disabled = false;
-    document.getElementById('stopRecBtn').disabled = true;
-}
-
-function sendAudio() {
-    if (!recordedBlob) return alert('Please record your recitation first.');
+function submitInPerson() {
     var fd = new FormData();
     fd.append('action', 'murajaah');
-    fd.append('session_type', 'audio');
-    fd.append('audio', recordedBlob, 'murajaah_' + Date.now() + '.' + REC_EXT);
+    fd.append('session_type', 'inperson');
     var csrfInput = document.querySelector('[name=csrf_token]');
     if (csrfInput) fd.append('csrf_token', csrfInput.value);
-
-    document.getElementById('uploadProgress').style.display = 'block';
-    document.getElementById('sendAudioBtn').disabled = true;
 
     fetch('submit_memorization.php', {method: 'POST', body: fd})
         .then(function(r) { return r.text(); })
         .then(function(res) {
             if (res.trim() === 'OK') { location.reload(); }
-            else { alert(res); document.getElementById('uploadProgress').style.display = 'none'; document.getElementById('sendAudioBtn').disabled = false; }
+            else { alert(res); }
         })
-        .catch(function() { alert('Upload failed. Please try again.'); document.getElementById('uploadProgress').style.display = 'none'; document.getElementById('sendAudioBtn').disabled = false; });
+        .catch(function() { alert('Request failed. Please try again.'); });
 }
 
 function submitUpload() {
     var fileInput = document.getElementById('uploadFile');
-    if (!fileInput.files || fileInput.files.length === 0) return alert('Please choose an audio file first.');
+    if (!fileInput.files || fileInput.files.length === 0) return alert('Please choose a video file first.');
     var file = fileInput.files[0];
+    if ((file.type && file.type.indexOf('audio/') === 0) || /\.(mp3|m4a|webm|ogg|wav|aac)$/i.test(file.name)) {
+        return alert('Audio files are not accepted for Muraja\'ah. Please upload a VIDEO (.mp4 / .mov / .m4v / .3gp).');
+    }
     var fd = new FormData();
     fd.append('action', 'murajaah');
-    fd.append('session_type', 'audio');
+    fd.append('session_type', 'video');
     fd.append('audio', file, file.name);
     var csrfInput = document.querySelector('[name=csrf_token]');
     if (csrfInput) fd.append('csrf_token', csrfInput.value);
@@ -512,8 +545,15 @@ function submitUpload() {
 document.addEventListener('change', function(e) {
     if (e.target && e.target.id === 'uploadFile') {
         var file = e.target.files[0];
-        var preview = document.getElementById('uploadPreview');
-        if (file && preview) { preview.src = URL.createObjectURL(file); preview.style.display = 'block'; }
+        var preview = document.getElementById('uploadVideoPreview');
+        if (!file) return;
+        if (file.type && file.type.indexOf('audio/') === 0) {
+            alert('Audio files are not accepted for Muraja\'ah. Please select a video file.');
+            e.target.value = '';
+            if (preview) preview.style.display = 'none';
+            return;
+        }
+        if (preview) { preview.src = URL.createObjectURL(file); preview.style.display = 'block'; }
     }
 });
 

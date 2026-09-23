@@ -6,6 +6,9 @@ require_once __DIR__ . '/../config/db.php';
 
 require_role('admin');
 
+/* Opportunistic media cleanup: Muraja'ah videos (36h) + completed-cycle audios (24h) */
+run_opportunistic_cleanup($conn);
+
 $holiday_on = holiday_mode_on($conn);
 $holiday_days = holiday_days_left($conn);
 
@@ -77,22 +80,60 @@ $pending_live_recitations = mysqli_fetch_assoc(
 )['c'];
 
 // ==========================
-// TOTAL PENDING (all combined)
-// ==========================
-$pending_recitations = $pending_recitations_submissions + $pending_lesson_requests + $pending_live_recitations;
-
-// ==========================
-// PENDING MURAJA'AH REVIEWS
+// PENDING MURAJA'AH REVIEWS (Memorizers)
 // ==========================
 $pending_murajaah = 0;
 if (db_table_exists($conn, 'quran_murajaah_sessions')) {
-    $pending_murajaah = mysqli_fetch_assoc(
+    $pending_murajaah = (int)mysqli_fetch_assoc(
         mysqli_query(
             $conn,
             "SELECT COUNT(*) AS c FROM quran_murajaah_sessions WHERE status = 'pending'"
         )
     )['c'];
 }
+
+// ==========================
+// PENDING ASSISTANCE REQUESTS (Section G on Teaching)
+// ==========================
+$pending_assistance = function_exists('mem_assistance_pending') ? count(mem_assistance_pending($conn)) : 0;
+$pending_mem_total  = $pending_murajaah + $pending_assistance;
+
+// ==========================
+// PENDING HAFIZ REVISION SESSIONS
+// ==========================
+$pending_hafiz_sessions = 0;
+if (db_table_exists($conn, 'hafiz_sessions')) {
+    $pending_hafiz_sessions = (int)mysqli_fetch_assoc(
+        mysqli_query(
+            $conn,
+            "SELECT COUNT(*) AS c FROM hafiz_sessions WHERE status = 'pending'"
+        )
+    )['c'];
+}
+
+// ==========================
+// PENDING HAFIZ WEEKLY TESTS
+// ==========================
+$pending_hafiz_tests = 0;
+if (db_table_exists($conn, 'hafiz_weekly_tests')) {
+    $pending_hafiz_tests = (int)mysqli_fetch_assoc(
+        mysqli_query(
+            $conn,
+            "SELECT COUNT(*) AS c FROM hafiz_weekly_tests WHERE status = 'submitted'"
+        )
+    )['c'];
+}
+
+// ==========================
+// TOTAL PENDING (all combined)
+// ==========================
+$pending_recitations = (int)$pending_recitations_submissions
+                     + (int)$pending_lesson_requests
+                     + (int)$pending_live_recitations
+                     + (int)$pending_murajaah
+                     + (int)$pending_assistance
+                     + (int)$pending_hafiz_sessions
+                     + (int)$pending_hafiz_tests;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -157,7 +198,7 @@ $islamiyya_coming_count = $islamiyya_total - $islamiyya_live_count;
         <span class="stat-ico"><?= ui_icon('clock', 22) ?></span>
         <span class="stat-label">Pending Work</span>
         <span class="stat-value"><?= $pending_recitations ?></span>
-        <span class="stat-sub">Recitations · lessons · live</span>
+        <span class="stat-sub">Recitations · lessons · live · hafiz · memorizer</span>
     </div>
 
     <a href="islamiyya.php" class="stat-card stat-blue" title="Digital Islamiyya overview — readiness counts">
@@ -190,8 +231,8 @@ $islamiyya_coming_count = $islamiyya_total - $islamiyya_live_count;
         <span class="ac-ico"><?= ui_icon('star', 24) ?></span>
         <span class="ac-title">Memorization</span>
         <span class="ac-sub">Memorizer progress &amp; Muraja&#8217;ah review</span>
-        <?php if ($pending_murajaah > 0): ?>
-            <span class="badge badge-count ac-badge"><?= $pending_murajaah ?> pending</span>
+        <?php if ($pending_mem_total > 0): ?>
+            <span class="badge badge-count ac-badge"><?= $pending_mem_total ?> pending</span>
         <?php endif; ?>
     </a>
     <?php endif; ?>
