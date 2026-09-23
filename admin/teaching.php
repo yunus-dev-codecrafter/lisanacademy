@@ -547,6 +547,7 @@ $cnt_g = count($assistance_requests);
 </h2>
 
 <?php if (!empty($mem_queue)): ?>
+<?php foreach ($mem_queue as $mq): ?>
 <div class="card animate-rise d5">
 
     <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
