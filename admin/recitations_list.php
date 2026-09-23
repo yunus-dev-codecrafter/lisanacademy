@@ -10,12 +10,16 @@ if (db_table_exists($conn, 'hafiz_sessions')) {
     $hafiz_union = "
     UNION ALL
     (
-        SELECT hs.id AS recitation_id, hs.status, hs.rating, hs.feedback,
-               u.name AS student_name, u.email AS student_email,
-               NULL AS lesson_id,
-               CONCAT('Hafiz — Page ', hs.page_no) AS surah_name,
-               hs.page_no AS from_verse, hs.page_no AS to_verse,
-               'Hafiz Revision' AS rec_type
+        SELECT hs.id AS recitation_id,
+               CONVERT(hs.status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS status,
+               CONVERT(hs.rating USING utf8mb4) COLLATE utf8mb4_unicode_ci AS rating,
+               CONVERT(hs.feedback USING utf8mb4) COLLATE utf8mb4_unicode_ci AS feedback,
+                CONVERT(u.name USING utf8mb4) COLLATE utf8mb4_unicode_ci AS student_name,
+                CONVERT(u.email USING utf8mb4) COLLATE utf8mb4_unicode_ci AS student_email,
+                NULL AS lesson_id,
+                CONCAT('Hafiz — Page ', hs.page_no) COLLATE utf8mb4_unicode_ci AS surah_name,
+                hs.page_no AS from_verse, hs.page_no AS to_verse,
+                'Hafiz Revision' COLLATE utf8mb4_unicode_ci AS rec_type
         FROM hafiz_sessions hs
         JOIN users u ON u.id = hs.student_id
         ORDER BY hs.id DESC
@@ -27,26 +31,38 @@ if (db_table_exists($conn, 'quran_murajaah_sessions')) {
     $murajaah_union = "
     UNION ALL
     (
-        SELECT qms.id AS recitation_id, qms.status, NULL AS rating, qms.feedback,
-               u.name AS student_name, u.email AS student_email,
-               NULL AS lesson_id,
-               CONCAT(\"Muraja'ah — Day \", qms.task_day) AS surah_name,
-               qms.start_page AS from_verse, qms.end_page AS to_verse,
-               \"Muraja'ah\" AS rec_type
+        SELECT qms.id AS recitation_id,
+               CONVERT(qms.status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS status,
+               NULL AS rating,
+               CONVERT(qms.feedback USING utf8mb4) COLLATE utf8mb4_unicode_ci AS feedback,
+                CONVERT(u.name USING utf8mb4) COLLATE utf8mb4_unicode_ci AS student_name,
+                CONVERT(u.email USING utf8mb4) COLLATE utf8mb4_unicode_ci AS student_email,
+                NULL AS lesson_id,
+                CONCAT(\"Muraja'ah — Day \", qms.task_day) COLLATE utf8mb4_unicode_ci AS surah_name,
+                qms.start_page AS from_verse, qms.end_page AS to_verse,
+                \"Muraja'ah\" COLLATE utf8mb4_unicode_ci AS rec_type
         FROM quran_murajaah_sessions qms
         JOIN users u ON u.id = qms.student_id
         ORDER BY qms.id DESC
     )";
 }
 
-/* ── Main query with UNIONs ───────────────────────────────────────────────── */
+/* ── Main query with UNIONs ─────────────────────────────────────────────────
+   Every string column carries an explicit COLLATE so the UNION never fails
+   with "Illegal mix of collations" when legacy tables (latin1/utf8/general_ci)
+   are combined with newer utf8mb4 tables or with string literals such as
+   'Hafiz — Page …' (the em-dash forces a collation coercion). */
 $recitations = $conn->query("
     (
-        SELECT sr.id AS recitation_id, sr.status, sr.rating, sr.feedback,
-               u.name AS student_name, u.email AS student_email,
-               l.id AS lesson_id, s.name_en AS surah_name,
-               l.from_verse, l.to_verse,
-               'Standard' AS rec_type
+        SELECT sr.id AS recitation_id,
+               CONVERT(sr.status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS status,
+               CONVERT(sr.rating USING utf8mb4) COLLATE utf8mb4_unicode_ci AS rating,
+               CONVERT(sr.feedback USING utf8mb4) COLLATE utf8mb4_unicode_ci AS feedback,
+               CONVERT(u.name USING utf8mb4) COLLATE utf8mb4_unicode_ci AS student_name,
+               CONVERT(u.email USING utf8mb4) COLLATE utf8mb4_unicode_ci AS student_email,
+                l.id AS lesson_id, CONVERT(s.name_en USING utf8mb4) COLLATE utf8mb4_unicode_ci AS surah_name,
+                l.from_verse, l.to_verse,
+                'Standard' COLLATE utf8mb4_unicode_ci AS rec_type
         FROM student_recitation sr
         JOIN users u ON u.id = sr.student_id
         JOIN lessons l ON l.id = sr.learning_plan_id

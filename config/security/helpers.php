@@ -925,59 +925,95 @@ if (!function_exists('teaching_pending_count')) {
     /**
      * Count of pending teaching work (recitation submissions,
      * lesson requests, live recitation requests). Used for the admin sidebar badge.
+     * Counts only rows the teaching page can actually display (matching JOINs),
+     * so the badge never shows "23" while the page is empty due to orphan rows.
      */
     function teaching_pending_count($conn) {
+        $total = 0;
         try {
-            $subs = (int)$conn->query(
-                "SELECT COUNT(*) c FROM student_recitation
-                 WHERE status = 'pending'
-                   AND audio_file IS NOT NULL
-                   AND audio_file != ''
-                   AND student_deleted = 0"
-            )->fetch_assoc()['c'];
+            // A: must JOIN users/lessons/surahs like teaching.php Section A.
+            // No audio_file filter (page shows pendings with or without audio).
+            $r = $conn->query(
+                "SELECT COUNT(*) c FROM student_recitation sr
+                 JOIN users u ON u.id = sr.student_id
+                 JOIN lessons l ON l.id = sr.learning_plan_id
+                 JOIN surahs s ON s.id = l.surah_id
+                 WHERE sr.status = 'pending' AND sr.student_deleted = 0"
+            );
+            if ($r) $total += (int)$r->fetch_assoc()['c'];
+        } catch (Throwable $e) {}
 
-            $lessons = (int)$conn->query(
+        try {
+            // B: must JOIN users/surahs like teaching.php Section B.
+            $r = $conn->query(
                 "SELECT COUNT(*) c FROM lessons l
+                 JOIN users u ON u.id = l.student_id
+                 JOIN surahs s ON s.id = l.surah_id
                  LEFT JOIN admin_audio aa ON aa.learning_plan_id = l.id
                  WHERE l.status = 'requested' AND aa.id IS NULL"
-            )->fetch_assoc()['c'];
+            );
+            if ($r) $total += (int)$r->fetch_assoc()['c'];
+        } catch (Throwable $e) {}
 
-            $live = (int)$conn->query(
-                "SELECT COUNT(*) c FROM live_recitation_requests WHERE status = 'pending'"
-            )->fetch_assoc()['c'];
+        try {
+            // C: must JOIN users/lessons/surahs like teaching.php Section C.
+            $r = $conn->query(
+                "SELECT COUNT(*) c FROM live_recitation_requests lr
+                 JOIN users u ON u.id = lr.student_id
+                 JOIN lessons l ON l.id = lr.lesson_id
+                 JOIN surahs s ON s.id = l.surah_id
+                 WHERE lr.status = 'pending'"
+            );
+            if ($r) $total += (int)$r->fetch_assoc()['c'];
+        } catch (Throwable $e) {}
 
-            $murajaah = 0;
-            if (db_table_exists($conn, 'quran_murajaah_sessions')) {
-                $murajaah = (int)$conn->query(
-                    "SELECT COUNT(*) c FROM quran_murajaah_sessions WHERE status = 'pending'"
-                )->fetch_assoc()['c'];
+        // F + G: use the same queue helpers as the page (they JOIN users and
+        // require the memorization engine), so hidden-section rows aren't counted.
+        try {
+            if (function_exists('mem_admin_queue')) $total += count(mem_admin_queue($conn));
+            elseif (db_table_exists($conn, 'quran_murajaah_sessions')) {
+                $r = $conn->query("SELECT COUNT(*) c FROM quran_murajaah_sessions s JOIN users u ON u.id = s.student_id WHERE s.status = 'pending'");
+                if ($r) $total += (int)$r->fetch_assoc()['c'];
             }
+        } catch (Throwable $e) {}
 
-            $assistance = 0;
-            if (db_table_exists($conn, 'mem_assistance_requests')) {
-                $assistance = (int)$conn->query(
-                    "SELECT COUNT(*) c FROM mem_assistance_requests WHERE status = 'pending'"
-                )->fetch_assoc()['c'];
+        try {
+            if (function_exists('mem_assistance_pending')) $total += count(mem_assistance_pending($conn));
+            elseif (db_table_exists($conn, 'mem_assistance_requests')) {
+                $r = $conn->query("SELECT COUNT(*) c FROM mem_assistance_requests r JOIN users u ON u.id = r.student_id WHERE r.status = 'pending'");
+                if ($r) $total += (int)$r->fetch_assoc()['c'];
             }
+        } catch (Throwable $e) {}
 
-            $hafiz_sessions = 0;
-            if (db_table_exists($conn, 'hafiz_sessions')) {
-                $hafiz_sessions = (int)$conn->query(
-                    "SELECT COUNT(*) c FROM hafiz_sessions WHERE status = 'pending'"
-                )->fetch_assoc()['c'];
+        try {
+            // D: page shows pending+rejected WITH joins to users/hafiz_revision.
+            if (db_table_exists($conn, 'hafiz_sessions') && db_table_exists($conn, 'hafiz_revision')) {
+                $r = $conn->query(
+                    "SELECT COUNT(*) c FROM hafiz_sessions hs
+                     JOIN users u ON u.id = hs.student_id
+                     JOIN hafiz_revision hr ON hr.id = hs.revision_id
+                     WHERE hs.status IN ('pending','rejected')"
+                );
+                if ($r) $total += (int)$r->fetch_assoc()['c'];
+            } elseif (db_table_exists($conn, 'hafiz_sessions')) {
+                $r = $conn->query("SELECT COUNT(*) c FROM hafiz_sessions hs JOIN users u ON u.id = hs.student_id WHERE hs.status IN ('pending','rejected')");
+                if ($r) $total += (int)$r->fetch_assoc()['c'];
             }
+        } catch (Throwable $e) {}
 
-            $hafiz_tests = 0;
+        try {
+            // E: page shows submitted tests WITH join to users.
             if (db_table_exists($conn, 'hafiz_weekly_tests')) {
-                $hafiz_tests = (int)$conn->query(
-                    "SELECT COUNT(*) c FROM hafiz_weekly_tests WHERE status = 'submitted'"
-                )->fetch_assoc()['c'];
+                $r = $conn->query(
+                    "SELECT COUNT(*) c FROM hafiz_weekly_tests t
+                     JOIN users u ON u.id = t.student_id
+                     WHERE t.status = 'submitted'"
+                );
+                if ($r) $total += (int)$r->fetch_assoc()['c'];
             }
+        } catch (Throwable $e) {}
 
-            return $subs + $lessons + $live + $murajaah + $assistance + $hafiz_sessions + $hafiz_tests;
-        } catch (Throwable $e) {
-            return 0;
-        }
+        return $total;
     }
 }
 

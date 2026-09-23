@@ -36,29 +36,34 @@ $total_students = mysqli_fetch_assoc(
 
 // ==========================
 // REAL PENDING RECITATIONS
-// (audio must exist)
+// (must JOIN users/lessons/surahs like teaching.php Section A so orphan
+// rows are never counted — otherwise the badge shows N while the page
+// is empty)
 // ==========================
 $pending_recitations_submissions = mysqli_fetch_assoc(
     mysqli_query(
         $conn,
         "SELECT COUNT(*) AS c
-         FROM student_recitation
-         WHERE status = 'pending'
-           AND audio_file IS NOT NULL
-           AND audio_file != ''
-           AND student_deleted = 0"
+         FROM student_recitation sr
+         JOIN users u ON u.id = sr.student_id
+         JOIN lessons l ON l.id = sr.learning_plan_id
+         JOIN surahs s ON s.id = l.surah_id
+         WHERE sr.status = 'pending'
+           AND sr.student_deleted = 0"
     )
 )['c'];
 
 // ==========================
 // PENDING LESSON REQUESTS
-// (no admin audio yet)
+// (no admin audio yet; must JOIN users/surahs like teaching.php Section B)
 // ==========================
 $pending_lesson_requests = mysqli_fetch_assoc(
     mysqli_query(
         $conn,
         "SELECT COUNT(*) AS c
          FROM lessons l
+         JOIN users u ON u.id = l.student_id
+         JOIN surahs s ON s.id = l.surah_id
          LEFT JOIN admin_audio aa
             ON aa.learning_plan_id = l.id
          WHERE l.status = 'requested'
@@ -68,29 +73,26 @@ $pending_lesson_requests = mysqli_fetch_assoc(
 
 // ==========================
 // PENDING LIVE RECITATION REQUESTS
-// (status still pending)
+// (status still pending; must JOIN users/lessons/surahs like Section C)
 // ==========================
 $pending_live_recitations = mysqli_fetch_assoc(
     mysqli_query(
         $conn,
         "SELECT COUNT(*) AS c
-         FROM live_recitation_requests
-         WHERE status = 'pending'"
+         FROM live_recitation_requests lr
+         JOIN users u ON u.id = lr.student_id
+         JOIN lessons l ON l.id = lr.lesson_id
+         JOIN surahs s ON s.id = l.surah_id
+         WHERE lr.status = 'pending'"
     )
 )['c'];
 
 // ==========================
 // PENDING MURAJA'AH REVIEWS (Memorizers)
+// Uses the same queue helper as teaching.php Section F (JOINs users,
+// requires the memorization engine) so hidden rows are never counted.
 // ==========================
-$pending_murajaah = 0;
-if (db_table_exists($conn, 'quran_murajaah_sessions')) {
-    $pending_murajaah = (int)mysqli_fetch_assoc(
-        mysqli_query(
-            $conn,
-            "SELECT COUNT(*) AS c FROM quran_murajaah_sessions WHERE status = 'pending'"
-        )
-    )['c'];
-}
+$pending_murajaah = function_exists('mem_admin_queue') ? count(mem_admin_queue($conn)) : 0;
 
 // ==========================
 // PENDING ASSISTANCE REQUESTS (Section G on Teaching)
@@ -100,13 +102,18 @@ $pending_mem_total  = $pending_murajaah + $pending_assistance;
 
 // ==========================
 // PENDING HAFIZ REVISION SESSIONS
+// Matches teaching.php Section D: pending+rejected WITH joins so the
+// dashboard total always equals the teaching page.
 // ==========================
 $pending_hafiz_sessions = 0;
-if (db_table_exists($conn, 'hafiz_sessions')) {
+if (db_table_exists($conn, 'hafiz_sessions') && db_table_exists($conn, 'hafiz_revision')) {
     $pending_hafiz_sessions = (int)mysqli_fetch_assoc(
         mysqli_query(
             $conn,
-            "SELECT COUNT(*) AS c FROM hafiz_sessions WHERE status = 'pending'"
+            "SELECT COUNT(*) AS c FROM hafiz_sessions hs
+             JOIN users u ON u.id = hs.student_id
+             JOIN hafiz_revision hr ON hr.id = hs.revision_id
+             WHERE hs.status IN ('pending','rejected')"
         )
     )['c'];
 }
@@ -119,7 +126,9 @@ if (db_table_exists($conn, 'hafiz_weekly_tests')) {
     $pending_hafiz_tests = (int)mysqli_fetch_assoc(
         mysqli_query(
             $conn,
-            "SELECT COUNT(*) AS c FROM hafiz_weekly_tests WHERE status = 'submitted'"
+            "SELECT COUNT(*) AS c FROM hafiz_weekly_tests t
+             JOIN users u ON u.id = t.student_id
+             WHERE t.status = 'submitted'"
         )
     )['c'];
 }

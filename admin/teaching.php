@@ -156,8 +156,13 @@ if (db_table_exists($conn, 'hafiz_weekly_tests') && db_table_exists($conn, 'hafi
 ---------------------- */
 $mem_queue = mem_admin_queue($conn);
 
-/* Section badge counts */
+/* Section badge counts — every section (A–G) contributes, so the in-page
+   pills always add up to the sidebar badge from teaching_pending_count().
+   Previously B (lessons) and C (live) were queried but never counted, which
+   made the badge show a number while the page appeared empty. */
 $cnt_a = ($recitations && $recitations->num_rows > 0) ? $recitations->num_rows : 0;
+$cnt_b = ($new_requests && $new_requests->num_rows > 0) ? $new_requests->num_rows : 0;
+$cnt_c = ($live_requests && $live_requests->num_rows > 0) ? $live_requests->num_rows : 0;
 $cnt_d = array_sum(array_map(fn($g) => count($g['pages']), $hafiz_groups));
 $cnt_e = ($hafiz_tests && $hafiz_tests->num_rows > 0) ? $hafiz_tests->num_rows : 0;
 $cnt_f = count($mem_queue);
@@ -179,6 +184,8 @@ $cnt_g = count($assistance_requests);
     <?php
     $jumps = [];
     if ($cnt_a > 0) $jumps[] = ['#sec-a', 'A · Student Submissions', $cnt_a];
+    if ($cnt_b > 0) $jumps[] = ['#sec-b', 'B · Lesson Requests', $cnt_b];
+    if ($cnt_c > 0) $jumps[] = ['#sec-c', 'C · Live Requests', $cnt_c];
     if ($cnt_d > 0) $jumps[] = ['#sec-d', 'D · Hafiz Revision', $cnt_d];
     if ($cnt_e > 0) $jumps[] = ['#sec-e', 'E · Hafiz Tests', $cnt_e];
     if ($cnt_f > 0) $jumps[] = ['#sec-f', "F · Muraja'ah", $cnt_f];
@@ -293,8 +300,9 @@ $cnt_g = count($assistance_requests);
 <!-- =====================
      Section B: New Lesson Requests
 ===================== -->
-<h2 class="mt-3 animate-rise d2" style="display:flex;align-items:center;gap:10px;">
+<h2 id="sec-b" class="mt-3 animate-rise d2" style="display:flex;align-items:center;gap:10px;">
     <span class="badge badge-gold">B</span> New Lesson Requests
+    <?php if ($cnt_b > 0): ?><span class="badge badge-count"><?= $cnt_b ?></span><?php endif; ?>
 </h2>
 
 <?php if ($new_requests && $new_requests->num_rows > 0): ?>
@@ -358,8 +366,9 @@ $cnt_g = count($assistance_requests);
 <!-- =====================
      Section C: Live Recitation Requests
 ===================== -->
-<h2 class="mt-3 animate-rise d3" style="display:flex;align-items:center;gap:10px;">
+<h2 id="sec-c" class="mt-3 animate-rise d3" style="display:flex;align-items:center;gap:10px;">
     <span class="badge badge-blue" style="background:linear-gradient(135deg,#1d4ed8,#3b82f6);">C</span> Pending Live Recitation Requests
+    <?php if ($cnt_c > 0): ?><span class="badge badge-count"><?= $cnt_c ?></span><?php endif; ?>
 </h2>
 
 <?php if ($live_requests && $live_requests->num_rows > 0): ?>
@@ -394,8 +403,10 @@ $cnt_g = count($assistance_requests);
 
 <!-- =====================
      Section D: Hafiz Revision Sessions
+     Header requires the same two tables as the Section D query above, so the
+     header can never appear without data (or vice-versa vs the badge).
 ===================== -->
-<?php if (db_table_exists($conn, 'hafiz_sessions')): ?>
+<?php if (db_table_exists($conn, 'hafiz_sessions') && db_table_exists($conn, 'hafiz_revision')): ?>
 <h2 id="sec-d" class="mt-3 animate-rise d4" style="display:flex;align-items:center;gap:10px;">
     <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);">D</span> Hafiz Revision — Review Pages
     <?php if ($cnt_d > 0): ?><span class="badge badge-count"><?= $cnt_d ?></span><?php endif; ?>
@@ -481,14 +492,15 @@ $cnt_g = count($assistance_requests);
 
 <!-- =====================
      Section E: Hafiz Weekly Tests
+     Header is always shown (with empty-state) so a badge count can never
+     point at a missing section.
 ===================== -->
-<?php if ($hafiz_tests): ?>
 <h2 id="sec-e" class="mt-3 animate-rise d5" style="display:flex;align-items:center;gap:10px;">
     <span class="badge" style="background:linear-gradient(135deg,#d97706,#f59e0b);">E</span> Hafiz Weekly Tests — Awaiting Review
     <?php if ($cnt_e > 0): ?><span class="badge badge-count"><?= $cnt_e ?></span><?php endif; ?>
 </h2>
 
-<?php if ($hafiz_tests->num_rows > 0): ?>
+<?php if ($hafiz_tests && $hafiz_tests->num_rows > 0): ?>
 <?php while ($ht = $hafiz_tests->fetch_assoc()): ?>
 <div class="card animate-rise d5">
 
@@ -524,18 +536,17 @@ $cnt_g = count($assistance_requests);
         <p class="small" style="margin:0;">Hafiz weekly tests awaiting your review will appear here.</p>
     </div>
 <?php endif; ?>
-<?php endif; ?>
 
 <!-- =====================
      Section F: Qur'an Memorization — Muraja'ah Sessions Awaiting Review
+     Header always shown so badge/hero pills always land on a visible section.
 ===================== -->
-<?php if (!empty($mem_queue)): ?>
 <h2 id="sec-f" class="mt-3 animate-rise d5" style="display:flex;align-items:center;gap:10px;">
     <span class="badge" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);">F</span> Qur'an Memorization — Muraja'ah Sessions Awaiting Review
     <?php if ($cnt_f > 0): ?><span class="badge badge-count"><?= $cnt_f ?></span><?php endif; ?>
 </h2>
 
-<?php foreach ($mem_queue as $mq): ?>
+<?php if (!empty($mem_queue)): ?>
 <div class="card animate-rise d5">
 
     <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
@@ -581,17 +592,24 @@ $cnt_g = count($assistance_requests);
 
 </div>
 <?php endforeach; ?>
+<?php else: ?>
+    <div class="empty animate-rise d5">
+        <div class="empty-icon"><?= ui_icon('check-circle', 40) ?></div>
+        <div class="empty-title">No muraja'ah sessions awaiting review</div>
+        <p class="small" style="margin:0;">Qur'an memorization submissions will appear here once students submit them.</p>
+    </div>
 <?php endif; ?>
 
 <!-- =====================
      Section G: Recitation Assistance Requests
+     Header always shown so badge/hero pills always land on a visible section.
 ===================== -->
-<?php if (!empty($assistance_requests)): ?>
 <h2 id="sec-g" class="mt-3 animate-rise d6" style="display:flex;align-items:center;gap:10px;">
     <span class="badge" style="background:linear-gradient(135deg,#d97706,#f59e0b);">G</span> Recitation Assistance Requests
     <?php if ($cnt_g > 0): ?><span class="badge badge-count"><?= $cnt_g ?></span><?php endif; ?>
 </h2>
 
+<?php if (!empty($assistance_requests)): ?>
 <?php foreach ($assistance_requests as $ar): ?>
 <div class="card animate-rise d6">
     <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
@@ -636,7 +654,11 @@ $cnt_g = count($assistance_requests);
 </div>
 <?php endforeach; ?>
 <?php else: ?>
-<?php /* no pending assistance requests — Section G hidden */ ?>
+    <div class="empty animate-rise d6">
+        <div class="empty-icon"><?= ui_icon('check-circle', 40) ?></div>
+        <div class="empty-title">No assistance requests</div>
+        <p class="small" style="margin:0;">When students ask for help with a page, their request will appear here.</p>
+    </div>
 <?php endif; ?>
 
 <?php ui_page_end(); ?>

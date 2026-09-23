@@ -55,6 +55,17 @@ mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 try {
     $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
     $conn->set_charset('utf8mb4');
+    // Pin the connection collation so string literals (e.g. CONCAT('Hafiz — …'))
+    // use the same collation as utf8mb4 columns. This prevents
+    // "Illegal mix of collations for operation 'UNION'" when UNIONing legacy
+    // tables against newer utf8mb4 tables. Table-level latin1 vs utf8mb4
+    // mismatches are additionally handled per-query with COLLATE clauses.
+    try {
+        $conn->query("SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+    } catch (Throwable $e) {
+        // Some shared hosts disallow SET NAMES; connection still works,
+        // per-query COLLATE clauses remain the primary fix.
+    }
 } catch (Throwable $e) {
     error_log('DB connect failed: ' . $e->getMessage() . ' (host=' . ($db_host ?? 'unknown') . ', db=' . ($db_name ?? 'unknown') . ')');
     throw $e;

@@ -8,40 +8,62 @@ $student_id = (int)$_SESSION['user_id'];
 
 /* ── Mark all unseen accepted/rejected recitations as seen silently ────────
    Instead of redirecting away (which caused a loop), mark them here and show
-   a banner below so the student sees the result without leaving this page. */
+   a banner below so the student sees the result without leaving this page.
+   Wrapped in try/catch so a schema drift (missing feedback_seen column) can
+   never 500 this page — the banner is best-effort. */
 $has_new = false;
-$mark_unseen = $conn->prepare("
-    SELECT id FROM student_recitation
-    WHERE student_id = ? AND student_deleted = 0
-      AND status IN ('accepted','rejected') AND feedback_seen = 0
-");
-$mark_unseen->bind_param("i", $student_id);
-$mark_unseen->execute();
-$unseen_ids = $mark_unseen->get_result()->fetch_all(MYSQLI_ASSOC);
-if (!empty($unseen_ids)) {
-    $has_new = true;
-    $ids_flat = implode(',', array_map('intval', array_column($unseen_ids, 'id')));
-    $conn->query("UPDATE student_recitation SET feedback_seen = 1 WHERE id IN ($ids_flat)");
+try {
+    $mark_unseen = $conn->prepare("
+        SELECT id FROM student_recitation
+        WHERE student_id = ? AND student_deleted = 0
+          AND status IN ('accepted','rejected') AND feedback_seen = 0
+    ");
+    $mark_unseen->bind_param("i", $student_id);
+    $mark_unseen->execute();
+    $unseen_ids = $mark_unseen->get_result()->fetch_all(MYSQLI_ASSOC);
+    if (!empty($unseen_ids)) {
+        $has_new = true;
+        $ids_flat = implode(',', array_map('intval', array_column($unseen_ids, 'id')));
+        $conn->query("UPDATE student_recitation SET feedback_seen = 1 WHERE id IN ($ids_flat)");
+    }
+} catch (Throwable $e) {
+    // Schema drift or transient DB error: log and continue with $has_new=false.
+    error_log('feedback.php mark_unseen skipped: ' . $e->getMessage());
 }
 
-/* ── Build optional UNION branches for extra table types ──────────────────── */
+/* ── Helper: only use an optional UNION branch when every column it needs ──
+   actually exists. The old code checked table existence only, so a partially
+   migrated table (table present, new columns missing) threw
+   "Unknown column …" and, via mysqli exceptions, 500'd the whole page. */
+$branch_ready = function ($table, array $cols) use ($conn) {
+    if (!db_table_exists($conn, $table)) return false;
+    foreach ($cols as $c) {
+        if (!db_column_exists($conn, $table, $c)) return false;
+    }
+    return true;
+};
+
+/* ── Build optional UNION branches for extra table types ────────────────────
+   Every string expression carries COLLATE utf8mb4_unicode_ci so mixing legacy
+   tables (latin1/utf8/general_ci) with newer utf8mb4 tables or with literals
+   never raises "Illegal mix of collations for operation 'UNION'". */
 
 /* Qur'an Muraja'ah (Memorizer) */
 $murajaah_sql = '';
-if (db_table_exists($conn, 'quran_murajaah_sessions')) {
+if ($branch_ready('quran_murajaah_sessions', ['task_day','start_page','end_page','feedback','admin_audio_feedback','status','submitted_at','reviewed_at','student_id'])) {
     $murajaah_sql = "
     UNION ALL
     (
         SELECT
             qms.id,
-            CONCAT('Day ', qms.task_day) AS rating,
-            qms.feedback,
-            qms.admin_audio_feedback,
-            qms.status,
+            CONCAT('Day ', qms.task_day) COLLATE utf8mb4_unicode_ci AS rating,
+            CONVERT(qms.feedback USING utf8mb4) COLLATE utf8mb4_unicode_ci AS feedback,
+            CONVERT(qms.admin_audio_feedback USING utf8mb4) COLLATE utf8mb4_unicode_ci AS admin_audio_feedback,
+            CONVERT(qms.status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS status,
             qms.start_page AS from_verse,
             qms.end_page AS to_verse,
-            'Qur\\'an Muraja\\'ah' AS surah_name,
-            'murajaah' AS type,
+            'Qur\\'an Muraja\\'ah' COLLATE utf8mb4_unicode_ci AS surah_name,
+            'murajaah' COLLATE utf8mb4_unicode_ci AS type,
             COALESCE(qms.reviewed_at, qms.submitted_at) AS sort_date
         FROM quran_murajaah_sessions qms
         WHERE qms.student_id = $student_id
@@ -51,20 +73,20 @@ if (db_table_exists($conn, 'quran_murajaah_sessions')) {
 
 /* Hafiz Revision Sessions */
 $hafiz_sql = '';
-if (db_table_exists($conn, 'hafiz_sessions')) {
+if ($branch_ready('hafiz_sessions', ['page_no','rating','feedback','admin_audio_feedback','status','submitted_at','reviewed_at','student_id'])) {
     $hafiz_sql = "
     UNION ALL
     (
         SELECT
             hs.id,
-            hs.rating,
-            hs.feedback,
-            hs.admin_audio_feedback,
-            hs.status,
+            CONVERT(hs.rating USING utf8mb4) COLLATE utf8mb4_unicode_ci AS rating,
+            CONVERT(hs.feedback USING utf8mb4) COLLATE utf8mb4_unicode_ci AS feedback,
+            CONVERT(hs.admin_audio_feedback USING utf8mb4) COLLATE utf8mb4_unicode_ci AS admin_audio_feedback,
+            CONVERT(hs.status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS status,
             hs.page_no AS from_verse,
             hs.page_no AS to_verse,
-            CONCAT('Page ', hs.page_no) AS surah_name,
-            'hafiz' AS type,
+            CONCAT('Page ', hs.page_no) COLLATE utf8mb4_unicode_ci AS surah_name,
+            'hafiz' COLLATE utf8mb4_unicode_ci AS type,
             COALESCE(hs.reviewed_at, hs.submitted_at) AS sort_date
         FROM hafiz_sessions hs
         WHERE hs.student_id = $student_id
@@ -74,20 +96,20 @@ if (db_table_exists($conn, 'hafiz_sessions')) {
 
 /* Hafiz Weekly Tests */
 $hafiz_test_sql = '';
-if (db_table_exists($conn, 'hafiz_weekly_tests')) {
+if ($branch_ready('hafiz_weekly_tests', ['week_no','admin_feedback','admin_audio_file','status','submitted_at','reviewed_at','student_id'])) {
     $hafiz_test_sql = "
     UNION ALL
     (
         SELECT
             hwt.id,
-            hwt.admin_feedback AS rating,
-            hwt.admin_feedback AS feedback,
-            hwt.admin_audio_file AS admin_audio_feedback,
-            hwt.status,
+            CONVERT(hwt.admin_feedback USING utf8mb4) COLLATE utf8mb4_unicode_ci AS rating,
+            CONVERT(hwt.admin_feedback USING utf8mb4) COLLATE utf8mb4_unicode_ci AS feedback,
+            CONVERT(hwt.admin_audio_file USING utf8mb4) COLLATE utf8mb4_unicode_ci AS admin_audio_feedback,
+            CONVERT(hwt.status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS status,
             hwt.week_no AS from_verse,
             hwt.week_no AS to_verse,
-            CONCAT('Week ', hwt.week_no, ' Test') AS surah_name,
-            'hafiz_test' AS type,
+            CONCAT('Week ', hwt.week_no, ' Test') COLLATE utf8mb4_unicode_ci AS surah_name,
+            'hafiz_test' COLLATE utf8mb4_unicode_ci AS type,
             COALESCE(hwt.reviewed_at, hwt.submitted_at) AS sort_date
         FROM hafiz_weekly_tests hwt
         WHERE hwt.student_id = $student_id
@@ -97,20 +119,20 @@ if (db_table_exists($conn, 'hafiz_weekly_tests')) {
 
 /* Memorizer Assistance Responses */
 $assistance_sql = '';
-if (db_table_exists($conn, 'mem_assistance_requests')) {
+if ($branch_ready('mem_assistance_requests', ['start_page','end_page','admin_notes','admin_audio','status','created_at','resolved_at','student_id'])) {
     $assistance_sql = "
     UNION ALL
     (
         SELECT
             mar.id,
             NULL AS rating,
-            mar.admin_notes AS feedback,
-            mar.admin_audio AS admin_audio_feedback,
-            'done' AS status,
+            CONVERT(mar.admin_notes USING utf8mb4) COLLATE utf8mb4_unicode_ci AS feedback,
+            CONVERT(mar.admin_audio USING utf8mb4) COLLATE utf8mb4_unicode_ci AS admin_audio_feedback,
+            'done' COLLATE utf8mb4_unicode_ci AS status,
             mar.start_page AS from_verse,
             mar.end_page AS to_verse,
-            CONCAT('Page ', mar.start_page, ' Assistance') AS surah_name,
-            'assistance' AS type,
+            CONCAT('Page ', mar.start_page, ' Assistance') COLLATE utf8mb4_unicode_ci AS surah_name,
+            'assistance' COLLATE utf8mb4_unicode_ci AS type,
             COALESCE(mar.resolved_at, mar.created_at) AS sort_date
         FROM mem_assistance_requests mar
         WHERE mar.student_id = $student_id
@@ -119,19 +141,22 @@ if (db_table_exists($conn, 'mem_assistance_requests')) {
     )";
 }
 
-/* ── Main unified query ───────────────────────────────────────────────────── */
-$q = $conn->query("
+/* ── Main unified query ─────────────────────────────────────────────────────
+   Tried as one UNION first; on any failure (collation, missing column, …)
+   we fall back to the two core branches so the student still sees their main
+   feedback instead of a 500 page. The failure is logged for the admin. */
+$base_sql = "
     (
         SELECT
             sr.id,
-            sr.rating,
-            sr.feedback,
-            sr.admin_audio_feedback,
-            sr.status,
+            CONVERT(sr.rating USING utf8mb4) COLLATE utf8mb4_unicode_ci AS rating,
+            CONVERT(sr.feedback USING utf8mb4) COLLATE utf8mb4_unicode_ci AS feedback,
+            CONVERT(sr.admin_audio_feedback USING utf8mb4) COLLATE utf8mb4_unicode_ci AS admin_audio_feedback,
+            CONVERT(sr.status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS status,
             l.from_verse,
             l.to_verse,
-            s.name_en AS surah_name,
-            'audio' AS type,
+            CONVERT(s.name_en USING utf8mb4) COLLATE utf8mb4_unicode_ci AS surah_name,
+            'audio' COLLATE utf8mb4_unicode_ci AS type,
             sr.submitted_at AS sort_date
         FROM student_recitation sr
         JOIN lessons l ON l.id = sr.learning_plan_id
@@ -147,13 +172,13 @@ $q = $conn->query("
         SELECT
             lr.id,
             NULL AS rating,
-            CONCAT('Live recitation scheduled for ', lr.preferred_date, ' at ', lr.preferred_time) AS feedback,
+            CONCAT('Live recitation scheduled for ', lr.preferred_date, ' at ', lr.preferred_time) COLLATE utf8mb4_unicode_ci AS feedback,
             NULL AS admin_audio_feedback,
-            lr.status,
+            CONVERT(lr.status USING utf8mb4) COLLATE utf8mb4_unicode_ci AS status,
             l.from_verse,
             l.to_verse,
-            s.name_en AS surah_name,
-            'live' AS type,
+            CONVERT(s.name_en USING utf8mb4) COLLATE utf8mb4_unicode_ci AS surah_name,
+            'live' COLLATE utf8mb4_unicode_ci AS type,
             lr.created_at AS sort_date
         FROM live_recitation_requests lr
         JOIN lessons l ON l.id = lr.lesson_id
@@ -161,14 +186,26 @@ $q = $conn->query("
         WHERE lr.student_id = $student_id
           AND lr.status IN ('accepted','rejected')
     )
-
-    $murajaah_sql
-    $hafiz_sql
-    $hafiz_test_sql
-    $assistance_sql
-
-    ORDER BY sort_date DESC
-");
+";
+$q = false;
+try {
+    $q = $conn->query("
+        $base_sql
+        $murajaah_sql
+        $hafiz_sql
+        $hafiz_test_sql
+        $assistance_sql
+        ORDER BY sort_date DESC
+    ");
+} catch (Throwable $e) {
+    error_log('feedback.php unified UNION failed, falling back to core branches: ' . $e->getMessage());
+    try {
+        $q = $conn->query("$base_sql ORDER BY sort_date DESC");
+    } catch (Throwable $e2) {
+        error_log('feedback.php core feedback query failed: ' . $e2->getMessage());
+        $q = false;
+    }
+}
 ?>
 
 <!DOCTYPE html>
