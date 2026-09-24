@@ -3,6 +3,7 @@ require '../config/security/helpers.php';
 require_role('student');
 require '../auth/auth_check.php';
 require '../config/db.php';
+require_once __DIR__ . '/../config/audio_fix.php';
 
 $student_id = (int)$_SESSION['user_id'];
 
@@ -282,9 +283,17 @@ try {
         </p>
     <?php endif; ?>
 
-    <?php if (!empty($row['admin_audio_feedback']) && file_exists(__DIR__ . '/../uploads/admin_feedback/' . $row['admin_audio_feedback'])): ?>
+    <?php
+    $admin_audio = trim((string)($row['admin_audio_feedback'] ?? ''));
+    if (!empty($admin_audio) && file_exists(__DIR__ . '/../uploads/admin_feedback/' . basename($admin_audio))): ?>
         <p class="small" style="margin:10px 0 4px;"><strong>Audio Feedback:</strong></p>
-        <?= media_player_html($row['admin_audio_feedback'], '../uploads/admin_feedback/') ?>
+        <?php if (function_exists('media_player_html')): ?>
+            <?= media_player_html(basename($admin_audio), '../uploads/admin_feedback/') ?>
+        <?php else: ?>
+            <audio controls preload="metadata" style="width:100%;" src="../uploads/admin_feedback/<?= htmlspecialchars(rawurlencode(basename($admin_audio))) ?>">
+                Your browser cannot play this audio. <a href="../uploads/admin_feedback/<?= htmlspecialchars(rawurlencode(basename($admin_audio))) ?>" download>Download it</a>.
+            </audio>
+        <?php endif; ?>
     <?php elseif ($row['type'] === 'audio'): ?>
         <p class="small text-muted" style="margin-top:10px;">No audio feedback yet.</p>
     <?php endif; ?>
