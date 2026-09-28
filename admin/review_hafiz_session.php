@@ -100,4 +100,12 @@ if ($status === 'accepted') {
     }
 }
 
+// Notify Hafiz student of verdict
+if (function_exists('notify_student')) {
+    $verdict_title = ($status === 'accepted') ? "🎉 Hafiz Page $page_no Accepted" : "📝 Hafiz Page $page_no Reviewed";
+    $rating_str = $rating ? " (Rating: $rating)" : "";
+    $verdict_msg = "Your teacher has reviewed your Page $page_no recitation$rating_str.";
+    notify_student($conn, $student_id, $verdict_title, $verdict_msg, 'hafiz_review', '/student/feedback.php', 'check-circle');
+}
+
 redirect('teaching.php');

@@ -249,6 +249,33 @@ if (!function_exists('ui_topbar')) {
     <button type="button" class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Open menu">' . ui_icon('menu', 22) . '</button>
     <div class="topbar-title">' . ($subtitle !== '' ? '<span class="crumb">' . htmlspecialchars($subtitle) . '</span>' : '') . htmlspecialchars($title) . '</div>
     <div class="topbar-spacer"></div>
+
+    <!-- Notification Bell & Dropdown Tray -->
+    <div class="topbar-notif-wrap" id="topbarNotifWrap">
+        <button type="button" class="topbar-notif-btn" id="notifBellBtn" onclick="toggleNotifTray()" aria-label="Notifications" title="Notifications">
+            ' . ui_icon('bell', 20) . '
+            <span class="notif-badge" id="notifBadge" style="display:none;">0</span>
+        </button>
+        <div class="notif-tray" id="notifTray">
+            <div class="notif-tray-header">
+                <div>
+                    <h4 style="margin:0;font-size:0.95rem;color:var(--emerald-950);">Notifications</h4>
+                    <span class="small text-muted" id="notifStatusText">Updates &amp; Daily 7 AM Reminders</span>
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm" onclick="markAllNotificationsRead()" style="font-size:0.75rem;padding:4px 8px;">Mark all read</button>
+            </div>
+            <div class="notif-prompt-box" id="notifPromptBox" style="display:none;">
+                <span>🔔 Device notifications are off</span>
+                <button type="button" class="btn btn-gold btn-sm" onclick="enablePushNotifications()" style="padding:4px 10px;font-size:0.78rem;">Turn On</button>
+            </div>
+            <div class="notif-tray-list" id="notifTrayList">
+                <div class="notif-empty" style="padding:24px 16px;text-align:center;color:var(--text-muted);font-size:0.88rem;">
+                    Loading notifications...
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="topbar-user">
         ' . $avatar_html . '
         <span class="uname">' . htmlspecialchars($name) . '</span>
@@ -267,11 +294,35 @@ if (!function_exists('ui_footer')) {
 if (!function_exists('ui_page_start')) {
     /** Open body: sidebar + main-area + topbar. Call before rendering content. */
     function ui_page_start($role, $active, $title, $subtitle = '') {
+        if (isset($GLOBALS['conn']) && function_exists('check_and_trigger_daily_virtue_notification')) {
+            check_and_trigger_daily_virtue_notification($GLOBALS['conn']);
+        }
+
         echo '<body>' . "\n";
         echo ui_sidebar($role, $active) . "\n";
         echo '<div class="main-area">' . "\n";
         echo ui_topbar($title, $subtitle) . "\n";
         echo '<main class="main-content">' . "\n";
+
+        // Visible post-login notification banner (controlled by notifications.js)
+        echo '
+<div id="pwaNotificationBanner" class="pwa-notif-banner animate-rise" style="display:none;">
+    <div class="pwa-notif-left">
+        <span class="pwa-notif-bell">' . ui_icon('bell', 22) . '</span>
+        <div>
+            <strong>Turn on Notifications</strong>
+            <p>Get instant alerts when your recitation is reviewed, when new submissions arrive, and daily 7:00 AM Islamic knowledge reminders.</p>
+        </div>
+    </div>
+    <div class="pwa-notif-right">
+        <button type="button" class="btn btn-gold btn-sm" onclick="enablePushNotifications()" style="gap:6px;">
+            ' . ui_icon('bell', 15) . ' Turn On Notifications
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="dismissNotifBanner()" aria-label="Dismiss" style="padding:6px 10px;color:rgba(255,255,255,.8);border-color:rgba(255,255,255,.3);">
+            ' . ui_icon('close', 15) . '
+        </button>
+    </div>
+</div>' . "\n";
     }
 }
 
@@ -284,6 +335,7 @@ if (!function_exists('ui_page_end')) {
         echo '<script src="/assets/js/sidebar.js"></script>' . "\n";
         echo '<script src="/assets/js/audio_player.js"></script>' . "\n";
         echo '<script src="/assets/js/pwa.js"></script>' . "\n";
+        echo '<script src="/assets/js/notifications.js"></script>' . "\n";
     }
 }
 

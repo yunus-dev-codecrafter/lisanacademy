@@ -80,6 +80,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     );
     $stmt->execute();
 
+    // Notify admin of new live request
+    if (function_exists('notify_admins')) {
+        $sname = $_SESSION['name'] ?? 'A student';
+        notify_admins($conn,
+            "📅 Live Recitation Request",
+            "$sname requested a live recitation on $day at $time.",
+            "new_submission",
+            "/admin/teaching.php#sec-c",
+            "calendar"
+        );
+    }
+
     /* WhatsApp redirect */
     $whatsapp = setting($conn, 'whatsapp_number', '2348029979040');
     $msg = urlencode(

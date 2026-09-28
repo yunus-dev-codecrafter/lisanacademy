@@ -24,6 +24,9 @@ Options -Indexes
 # Block direct web access to config / tmp folders
 RewriteRule ^config/ - [F,L]
 RewriteRule ^tmp/ - [F,L]
+# Allow API and cron endpoints
+RewriteRule ^api/ - [L]
+RewriteRule ^cron/ - [L]
 
 # Service worker and manifest MIME headers
 <IfModule mod_headers.c>

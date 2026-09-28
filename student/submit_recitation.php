@@ -83,6 +83,19 @@ if (!$stmt->execute()) {
     exit('Database error');
 }
 
+// Notify admin of new recitation submission
+$student_name = $_SESSION['name'] ?? 'A student';
+if (function_exists('notify_admins')) {
+    notify_admins(
+        $conn,
+        "🎙️ New Recitation Submitted",
+        "$student_name submitted a recitation for review.",
+        "new_submission",
+        "/admin/teaching.php#sec-a",
+        "book"
+    );
+}
+
 /* Fetch-style requests get a plain OK so the JS can react without loading the dashboard. */
 if ($is_ajax) {
     echo 'OK';

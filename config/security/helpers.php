@@ -1900,6 +1900,18 @@ if (!function_exists('hafiz_record_submission')) {
         // Always advance past the submitted page (idempotent, concurrency-safe).
         hafiz_ensure_advanced($conn, $revision_id, $page_no);
 
+        if (function_exists('notify_admins')) {
+            $st_name = $_SESSION['name'] ?? 'A Hafiz student';
+            notify_admins(
+                $conn,
+                "📖 Hafiz Revision Page Submitted",
+                "$st_name submitted Page $page_no for revision.",
+                "hafiz_submission",
+                "/admin/teaching.php#sec-d",
+                "book"
+            );
+        }
+
         return ['ok' => true, 'reason' => 'OK'];
     }
 }
@@ -3887,6 +3899,19 @@ if (!function_exists('mem_submit_murajaah')) {
                 $task['day_session'], $stype, $afile);
             $st->execute();
             $id = (int)$conn->insert_id;
+
+            if (function_exists('notify_admins')) {
+                $st_name = $_SESSION['name'] ?? 'A student';
+                notify_admins(
+                    $conn,
+                    "✨ Muraja'ah Recitation Submitted",
+                    "$st_name submitted Day {$task['day_number']} Muraja'ah for assessment.",
+                    "murajaah_submission",
+                    "/admin/teaching.php#sec-f",
+                    "star"
+                );
+            }
+
             return ['ok' => true, 'session_id' => $id, 'task' => $task, 'state' => $state, 'reason' => ''];
         } catch (Throwable $e) {
             return ['ok' => false, 'reason' => 'Could not save the submission.', 'task' => $task, 'state' => $state];
@@ -3922,6 +3947,15 @@ if (!function_exists('mem_mark_murajaah')) {
 
             $student_id = (int)$row['student_id'];
             $state = mem_get_state($conn, $student_id);
+
+            // Notify student of Muraja'ah assessment
+            if (function_exists('notify_student')) {
+                $title = ($announce === 'passed') ? "🎉 Muraja'ah Assessment Passed!" : "📝 Muraja'ah Feedback Received";
+                $vmsg = ($announce === 'passed')
+                    ? "Masha'Allah! Your Day {$row['task_day']} Muraja'ah has been accepted."
+                    : "Your Day {$row['task_day']} Muraja'ah was reviewed with feedback. Tap to view your review.";
+                notify_student($conn, $student_id, $title, $vmsg, 'murajaah_review', '/student/feedback.php', 'star');
+            }
 
             if (db_table_exists($conn, 'quran_memorization_log')) {
                 try {
@@ -4355,7 +4389,21 @@ if (!function_exists('mem_assistance_submit')) {
                 VALUES (?, ?, ?, ?, ?, 'pending', NOW())");
             $st->bind_param("iiiis", $student_id, $task_day, $sp, $ep, $note);
             $st->execute();
-            return ['ok' => true, 'id' => (int)$conn->insert_id, 'reason' => ''];
+            $insert_id = (int)$conn->insert_id;
+
+            if (function_exists('notify_admins')) {
+                $st_name = $_SESSION['name'] ?? 'A student';
+                notify_admins(
+                    $conn,
+                    "🙋 Recitation Assistance Requested",
+                    "$st_name needs recitation help on Page $sp.",
+                    "assistance",
+                    "/admin/teaching.php#sec-g",
+                    "headphones"
+                );
+            }
+
+            return ['ok' => true, 'id' => $insert_id, 'reason' => ''];
         } catch (Throwable $e) {
             return ['ok' => false, 'reason' => 'Could not save the request.'];
         }
@@ -4577,9 +4625,431 @@ if (!function_exists('run_opportunistic_cleanup')) {
             if (function_exists('cleanup_completed_cycle_audios')) {
                 cleanup_completed_cycle_audios($conn, 24);
             }
+            if (function_exists('check_and_trigger_daily_virtue_notification')) {
+                check_and_trigger_daily_virtue_notification($conn);
+            }
         } catch (Throwable $e) {
             /* Failsafe: never break page rendering */
             error_log('opportunistic_cleanup: ' . $e->getMessage());
+        }
+    }
+}
+
+/* =========================================================
+   LISANUN MUBEEN ACADEMY — NOTIFICATION SYSTEM HELPERS
+   ========================================================= */
+
+if (!function_exists('ensure_notification_tables')) {
+    function ensure_notification_tables($conn) {
+        static $ensured = false;
+        if ($ensured || !isset($conn)) return;
+        $ensured = true;
+
+        try {
+            if (!db_table_exists($conn, 'app_notifications')) {
+                $conn->query("
+                    CREATE TABLE IF NOT EXISTS app_notifications (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        user_id INT NULL,
+                        target_role ENUM('all', 'student', 'admin') NOT NULL DEFAULT 'all',
+                        title VARCHAR(255) NOT NULL,
+                        message TEXT NOT NULL,
+                        type VARCHAR(50) NOT NULL DEFAULT 'general',
+                        action_url VARCHAR(255) NULL,
+                        icon VARCHAR(50) NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_user_role (user_id, target_role, created_at)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                ");
+            }
+
+            if (!db_table_exists($conn, 'user_notification_reads')) {
+                $conn->query("
+                    CREATE TABLE IF NOT EXISTS user_notification_reads (
+                        user_id INT NOT NULL,
+                        notification_id INT NOT NULL,
+                        read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (user_id, notification_id),
+                        INDEX idx_user_read (user_id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                ");
+            }
+
+            if (!db_table_exists($conn, 'user_notification_settings')) {
+                $conn->query("
+                    CREATE TABLE IF NOT EXISTS user_notification_settings (
+                        user_id INT PRIMARY KEY,
+                        notifications_enabled TINYINT(1) NOT NULL DEFAULT 1,
+                        daily_reminder_enabled TINYINT(1) NOT NULL DEFAULT 1,
+                        push_subscription TEXT NULL,
+                        last_daily_sent_date DATE NULL,
+                        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                ");
+            }
+        } catch (Throwable $e) {
+            error_log('ensure_notification_tables error: ' . $e->getMessage());
+        }
+    }
+}
+
+if (!function_exists('get_daily_islamic_virtue')) {
+    /**
+     * Curated authentic Hadiths & Qur'anic verses on the virtue of seeking Islamic knowledge.
+     * Rotates by day of the year (or custom index) to provide an inspiring daily 7:00 AM reminder.
+     */
+    function get_daily_islamic_virtue($index = null) {
+        $virtues = [
+            [
+                'text' => 'The Messenger of Allah ﷺ said: "Whoever takes a path upon which he seeks knowledge, Allah makes the path to Paradise easy for him."',
+                'source' => 'Sahih Muslim (2699)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "The best among you are those who learn the Qur\'an and teach it to others."',
+                'source' => 'Sahih al-Bukhari (5027)'
+            ],
+            [
+                'text' => 'Allah ﷻ says: "Say: Are those who know equal to those who do not know? Only they will remember who are people of understanding."',
+                'source' => 'Surah Az-Zumar (39:9)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "Seeking knowledge is an obligation upon every Muslim."',
+                'source' => 'Sunan Ibn Majah (224)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "When a person dies, his deeds come to an end except for three: ongoing charity, beneficial knowledge, or a righteous child who prays for him."',
+                'source' => 'Sahih Muslim (1631)'
+            ],
+            [
+                'text' => 'Allah ﷻ says: "Allah will raise those who have believed among you and those who were given knowledge, by degrees."',
+                'source' => 'Surah Al-Mujadila (58:11)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "If Allah wants to do good to someone, He grants him deep understanding of the religion."',
+                'source' => 'Sahih al-Bukhari (71)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "The angels lower their wings in pleased approval for the seeker of beneficial knowledge."',
+                'source' => 'Jami` at-Tirmidhi (2682)'
+            ],
+            [
+                'text' => 'Allah ﷻ commanded His Prophet: "And say: My Lord, increase me in knowledge."',
+                'source' => 'Surah Ta-Ha (20:114)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "The superiority of the learned person over the devout worshipper is like the superiority of the full moon over the other stars."',
+                'source' => 'Sunan Abi Dawud (3641)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "The one who recites the Qur\'an and is skilled in it will be in the company of the noble and obedient angels."',
+                'source' => 'Sahih al-Bukhari (4937)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "Whoever goes out seeking knowledge is in the cause of Allah until he returns."',
+                'source' => 'Jami` at-Tirmidhi (2647)'
+            ],
+            [
+                'text' => 'Allah ﷻ says: "Only those fear Allah, from among His servants, who have knowledge."',
+                'source' => 'Surah Fatir (35:28)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "Verily, everything seeks forgiveness for the seeker of knowledge, even the fish in the depths of the ocean."',
+                'source' => 'Sunan Abi Dawud (3641)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "The scholars are the inheritors of the Prophets. The Prophets leave behind neither dinar nor dirham, but only knowledge."',
+                'source' => 'Sunan Abi Dawud (3641)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "No people gather in one of the houses of Allah, reciting the Book of Allah and studying it together, except that tranquility descends upon them, mercy envelops them, the angels surround them, and Allah mentions them to those with Him."',
+                'source' => 'Sahih Muslim (2699)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "May Allah brighten the face of a person who hears a Hadith from us, preserves it, and conveys it to others."',
+                'source' => 'Jami` at-Tirmidhi (2658)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "Ask Allah for beneficial knowledge, and seek refuge in Allah from knowledge that is of no benefit."',
+                'source' => 'Sunan Ibn Majah (3843)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "The Qur\'an will come on the Day of Resurrection as an intercessor for its companion."',
+                'source' => 'Sahih Muslim (804)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "It will be said to the companion of the Qur\'an: Recite and ascend, and recite carefully as you recited in the world, for your status is at the last verse you recite."',
+                'source' => 'Sunan Abi Dawud (1464)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "Whoever recites a letter from the Book of Allah, he will have one good deed for it, and the good deed is rewarded tenfold."',
+                'source' => 'Jami` at-Tirmidhi (2910)'
+            ],
+            [
+                'text' => 'The Prophet ﷺ said: "Whoever guides someone to a good deed will have a reward similar to the one who performs it."',
+                'source' => 'Sahih Muslim (1893)'
+            ]
+        ];
+
+        if ($index === null) {
+            $dayOfYear = (int)date('z');
+            $index = $dayOfYear % count($virtues);
+        } else {
+            $index = abs((int)$index) % count($virtues);
+        }
+
+        return $virtues[$index];
+    }
+}
+
+if (!function_exists('check_and_trigger_daily_virtue_notification')) {
+    /**
+     * Checks if it is 7:00 AM or later (WAT/Africa/Lagos) and today's daily
+     * virtue reminder has not been sent yet. If not, dispatches it to all users.
+     */
+    function check_and_trigger_daily_virtue_notification($conn, $force = false) {
+        if (!isset($conn)) return false;
+        ensure_notification_tables($conn);
+
+        $hour = (int)date('G'); // 0-23
+        if (!$force && $hour < 7) {
+            return false; // Only trigger at or after 7:00 AM
+        }
+
+        $today = date('Y-m-d');
+        $last_sent = (string)setting($conn, 'daily_virtue_last_date', '');
+        if (!$force && $last_sent === $today) {
+            return false; // Already sent today
+        }
+
+        // Stamp setting first to prevent double broadcast
+        try {
+            $esc = $conn->real_escape_string($today);
+            $chk = $conn->query("SELECT 1 FROM app_settings WHERE setting_key = 'daily_virtue_last_date' LIMIT 1");
+            if ($chk && $chk->num_rows > 0) {
+                $conn->query("UPDATE app_settings SET setting_value = '$esc' WHERE setting_key = 'daily_virtue_last_date'");
+            } else {
+                $conn->query("INSERT INTO app_settings (setting_key, setting_value) VALUES ('daily_virtue_last_date', '$esc')");
+            }
+        } catch (Throwable $e) { /* ignore */ }
+
+        $virtue = get_daily_islamic_virtue();
+        $title = '🌟 Daily Islamic Reminder';
+        $msg = $virtue['text'] . "\n\n— " . $virtue['source'];
+
+        return create_notification(
+            $conn,
+            null, // broadcast
+            'all',
+            $title,
+            $msg,
+            'daily_virtue',
+            '/student/dashboard.php',
+            'book'
+        );
+    }
+}
+
+if (!function_exists('create_notification')) {
+    function create_notification($conn, $user_id, $target_role, $title, $message, $type = 'general', $action_url = '', $icon = '') {
+        if (!isset($conn)) return false;
+        ensure_notification_tables($conn);
+
+        try {
+            $user_id_val = ($user_id !== null && (int)$user_id > 0) ? (int)$user_id : null;
+            $target_role = in_array($target_role, ['all', 'student', 'admin'], true) ? $target_role : 'all';
+            $title = trim((string)$title);
+            $message = trim((string)$message);
+            $type = trim((string)$type);
+            $action_url = trim((string)$action_url);
+            $icon = trim((string)$icon);
+
+            $stmt = $conn->prepare("
+                INSERT INTO app_notifications (user_id, target_role, title, message, type, action_url, icon, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+            ");
+            $stmt->bind_param("issssss", $user_id_val, $target_role, $title, $message, $type, $action_url, $icon);
+            $stmt->execute();
+            return $stmt->insert_id;
+        } catch (Throwable $e) {
+            error_log('create_notification error: ' . $e->getMessage());
+            return false;
+        }
+    }
+}
+
+if (!function_exists('notify_admins')) {
+    function notify_admins($conn, $title, $message, $type = 'general', $action_url = '', $icon = '') {
+        return create_notification($conn, null, 'admin', $title, $message, $type, $action_url, $icon);
+    }
+}
+
+if (!function_exists('notify_student')) {
+    function notify_student($conn, $student_id, $title, $message, $type = 'general', $action_url = '', $icon = '') {
+        return create_notification($conn, (int)$student_id, 'student', $title, $message, $type, $action_url, $icon);
+    }
+}
+
+if (!function_exists('get_user_notifications')) {
+    function get_user_notifications($conn, $user_id, $role, $limit = 20, $unread_only = false) {
+        if (!isset($conn)) return [];
+        ensure_notification_tables($conn);
+
+        $user_id = (int)$user_id;
+        $role = ($role === 'admin') ? 'admin' : 'student';
+        $limit = max(1, min(50, (int)$limit));
+        $unread_filter = $unread_only ? "AND unr.notification_id IS NULL" : "";
+
+        $sql = "
+            SELECT n.*, (unr.notification_id IS NOT NULL) AS is_read
+            FROM app_notifications n
+            LEFT JOIN user_notification_reads unr
+                ON unr.notification_id = n.id AND unr.user_id = $user_id
+            WHERE (n.user_id = $user_id OR (n.user_id IS NULL AND (n.target_role = '$role' OR n.target_role = 'all')))
+            $unread_filter
+            ORDER BY n.created_at DESC, n.id DESC
+            LIMIT $limit
+        ";
+        try {
+            $res = $conn->query($sql);
+            $list = [];
+            if ($res) {
+                while ($row = $res->fetch_assoc()) {
+                    $list[] = $row;
+                }
+            }
+            return $list;
+        } catch (Throwable $e) {
+            error_log('get_user_notifications error: ' . $e->getMessage());
+            return [];
+        }
+    }
+}
+
+if (!function_exists('get_unread_notification_count')) {
+    function get_unread_notification_count($conn, $user_id, $role) {
+        if (!isset($conn)) return 0;
+        ensure_notification_tables($conn);
+
+        $user_id = (int)$user_id;
+        $role = ($role === 'admin') ? 'admin' : 'student';
+
+        $sql = "
+            SELECT COUNT(*) AS unread_count
+            FROM app_notifications n
+            LEFT JOIN user_notification_reads unr
+                ON unr.notification_id = n.id AND unr.user_id = $user_id
+            WHERE (n.user_id = $user_id OR (n.user_id IS NULL AND (n.target_role = '$role' OR n.target_role = 'all')))
+              AND unr.notification_id IS NULL
+        ";
+        try {
+            $row = $conn->query($sql)->fetch_assoc();
+            return (int)($row['unread_count'] ?? 0);
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+}
+
+if (!function_exists('mark_notification_as_read')) {
+    function mark_notification_as_read($conn, $user_id, $notification_id) {
+        if (!isset($conn)) return false;
+        ensure_notification_tables($conn);
+
+        $user_id = (int)$user_id;
+        $notification_id = (int)$notification_id;
+        try {
+            $stmt = $conn->prepare("
+                INSERT INTO user_notification_reads (user_id, notification_id, read_at)
+                VALUES (?, ?, NOW())
+                ON DUPLICATE KEY UPDATE read_at = NOW()
+            ");
+            $stmt->bind_param("ii", $user_id, $notification_id);
+            return $stmt->execute();
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('mark_all_notifications_read')) {
+    function mark_all_notifications_read($conn, $user_id, $role) {
+        if (!isset($conn)) return false;
+        ensure_notification_tables($conn);
+
+        $user_id = (int)$user_id;
+        $role = ($role === 'admin') ? 'admin' : 'student';
+
+        try {
+            $sql = "
+                INSERT IGNORE INTO user_notification_reads (user_id, notification_id, read_at)
+                SELECT $user_id, n.id, NOW()
+                FROM app_notifications n
+                LEFT JOIN user_notification_reads unr
+                    ON unr.notification_id = n.id AND unr.user_id = $user_id
+                WHERE (n.user_id = $user_id OR (n.user_id IS NULL AND (n.target_role = '$role' OR n.target_role = 'all')))
+                  AND unr.notification_id IS NULL
+            ";
+            return (bool)$conn->query($sql);
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+}
+
+if (!function_exists('get_user_notification_settings')) {
+    function get_user_notification_settings($conn, $user_id) {
+        if (!isset($conn)) return ['notifications_enabled' => 1, 'daily_reminder_enabled' => 1];
+        ensure_notification_tables($conn);
+
+        $user_id = (int)$user_id;
+        try {
+            $res = $conn->query("SELECT * FROM user_notification_settings WHERE user_id = $user_id LIMIT 1");
+            if ($res && $row = $res->fetch_assoc()) {
+                return $row;
+            }
+            return [
+                'user_id' => $user_id,
+                'notifications_enabled' => 1,
+                'daily_reminder_enabled' => 1,
+                'push_subscription' => null
+            ];
+        } catch (Throwable $e) {
+            return ['notifications_enabled' => 1, 'daily_reminder_enabled' => 1];
+        }
+    }
+}
+
+if (!function_exists('update_user_notification_settings')) {
+    function update_user_notification_settings($conn, $user_id, $enabled = 1, $daily_enabled = 1, $push_sub = null) {
+        if (!isset($conn)) return false;
+        ensure_notification_tables($conn);
+
+        $user_id = (int)$user_id;
+        $enabled = $enabled ? 1 : 0;
+        $daily_enabled = $daily_enabled ? 1 : 0;
+
+        try {
+            if ($push_sub !== null) {
+                $stmt = $conn->prepare("
+                    INSERT INTO user_notification_settings (user_id, notifications_enabled, daily_reminder_enabled, push_subscription)
+                    VALUES (?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE notifications_enabled = VALUES(notifications_enabled),
+                                           daily_reminder_enabled = VALUES(daily_reminder_enabled),
+                                           push_subscription = VALUES(push_subscription)
+                ");
+                $stmt->bind_param("iiis", $user_id, $enabled, $daily_enabled, $push_sub);
+            } else {
+                $stmt = $conn->prepare("
+                    INSERT INTO user_notification_settings (user_id, notifications_enabled, daily_reminder_enabled)
+                    VALUES (?, ?, ?)
+                    ON DUPLICATE KEY UPDATE notifications_enabled = VALUES(notifications_enabled),
+                                           daily_reminder_enabled = VALUES(daily_reminder_enabled)
+                ");
+                $stmt->bind_param("iii", $user_id, $enabled, $daily_enabled);
+            }
+            return $stmt->execute();
+        } catch (Throwable $e) {
+            return false;
         }
     }
 }

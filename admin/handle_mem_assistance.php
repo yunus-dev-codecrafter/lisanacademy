@@ -37,6 +37,20 @@ $admin_id = (int)($_SESSION['user_id'] ?? 0);
 $ok = mem_mark_assistance_fulfilled($conn, $request_id, $admin_id, $admin_audio, $admin_notes);
 
 if ($ok) {
+    if (function_exists('notify_student')) {
+        $ar = $conn->query("SELECT student_id, start_page FROM mem_assistance_requests WHERE id = $request_id LIMIT 1")->fetch_assoc();
+        if ($ar && !empty($ar['student_id'])) {
+            notify_student(
+                $conn,
+                (int)$ar['student_id'],
+                "🎧 Recitation Assistance Ready",
+                "Your teacher has provided recitation guidance for Page " . (int)$ar['start_page'] . ". Tap to listen.",
+                "assistance_ready",
+                "/student/quran_memorization.php",
+                "headphones"
+            );
+        }
+    }
     redirect('teaching.php?assist_done=1');
 }
 redirect('teaching.php?error=' . urlencode('Could not mark the request fulfilled.'));

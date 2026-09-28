@@ -1,9 +1,9 @@
 /* =========================================================
    LISANUN MUBEEN ACADEMY — SERVICE WORKER
-   sw.js · Enables PWA installability, asset caching & offline fallback
+   sw.js · Enables PWA installability, asset caching, offline fallback & Push notifications
    ========================================================= */
 
-const CACHE_NAME = 'lisanun-pwa-v1';
+const CACHE_NAME = 'lisanun-pwa-v2';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_ASSETS = [
@@ -21,7 +21,8 @@ const PRECACHE_ASSETS = [
   '/assets/icons/favicon-32x32.png',
   '/assets/icons/favicon-16x16.png',
   '/assets/js/sidebar.js',
-  '/assets/js/pwa.js'
+  '/assets/js/pwa.js',
+  '/assets/js/notifications.js'
 ];
 
 /* 1. Install event: Cache essential app shell & offline page */
@@ -60,6 +61,11 @@ self.addEventListener('fetch', (event) => {
   }
 
   const url = new URL(request.url);
+
+  // Skip API & cron endpoints from offline HTML fallback
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/cron/')) {
+    return;
+  }
 
   // HTML page navigations -> Network First, fallback to cached offline page
   if (request.mode === 'navigate') {
@@ -112,5 +118,62 @@ self.addEventListener('fetch', (event) => {
   // Default fallback: regular network fetch
   event.respondWith(
     fetch(request).catch(() => caches.match(request))
+  );
+});
+
+/* 4. Push event: Received from Web Push Server */
+self.addEventListener('push', (event) => {
+  let data = {
+    title: 'Lisanun Mubeen Academy',
+    body: 'You have a new update from Lisanun Mubeen.',
+    url: '/',
+    icon: '/assets/icons/icon-192.png',
+    badge: '/assets/icons/favicon-32x32.png'
+  };
+
+  if (event.data) {
+    try {
+      data = Object.assign(data, event.data.json());
+    } catch (e) {
+      data.body = event.data.text();
+    }
+  }
+
+  const options = {
+    body: data.body,
+    icon: data.icon || '/assets/icons/icon-192.png',
+    badge: data.badge || '/assets/icons/favicon-32x32.png',
+    vibrate: [150, 60, 150],
+    data: {
+      url: data.url || '/'
+    }
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
+});
+
+/* 5. Notification click event: Open/focus target page in app */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url)
+    ? event.notification.data.url
+    : '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // If a window is already open, focus it and navigate
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      // Otherwise open new window
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
   );
 });

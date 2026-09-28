@@ -78,6 +78,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = $decision === 'passed'
                 ? "Test marked PASSED. The student may now continue reciting."
                 : "Test marked FAILED. The student must retake it before continuing.";
+
+            // Notify student
+            if (function_exists('notify_student') && !empty($test['student_id'])) {
+                $vtitle = ($decision === 'passed') ? "🎉 Hafiz Weekly Test Passed!" : "📝 Hafiz Weekly Test Result";
+                $vtext = ($decision === 'passed')
+                    ? "Masha'Allah! Your Week {$test['week_no']} test was marked PASSED."
+                    : "Your Week {$test['week_no']} test was reviewed. Tap to view teacher feedback.";
+                notify_student($conn, (int)$test['student_id'], $vtitle, $vtext, 'test_review', '/student/feedback.php', 'calendar-check');
+            }
+
             // Refresh test
             $stmt = $conn->prepare("SELECT * FROM hafiz_weekly_tests WHERE id = ? LIMIT 1");
             $stmt->bind_param("i", $test_id);

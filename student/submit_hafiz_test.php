@@ -123,4 +123,16 @@ $stmt = $conn->prepare("UPDATE hafiz_weekly_tests SET status = 'submitted', subm
 $stmt->bind_param("i", $test_id);
 $stmt->execute();
 
+if (function_exists('notify_admins')) {
+    $st_name = $_SESSION['name'] ?? 'A Hafiz student';
+    notify_admins(
+        $conn,
+        "📋 Hafiz Weekly Test Submitted",
+        "$st_name completed and submitted a Hafiz Weekly Test for evaluation.",
+        "test_submission",
+        "/admin/teaching.php#sec-e",
+        "calendar-check"
+    );
+}
+
 echo 'OK';

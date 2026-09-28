@@ -73,6 +73,14 @@ if ($status === 'accepted') {
 /* Mark lesson as reviewed */
 $conn->query("UPDATE lessons SET status='reviewed' WHERE id={$data['learning_plan_id']}");
 
+// Notify student of the review outcome
+if (function_exists('notify_student')) {
+    $verdict_title = ($status === 'accepted') ? "🎉 Recitation Accepted!" : "📝 Recitation Feedback Received";
+    $rating_str = $rating ? " (Rating: $rating)" : "";
+    $verdict_msg = "Your teacher has reviewed your recitation$rating_str. Tap to view your feedback.";
+    notify_student($conn, (int)$data['student_id'], $verdict_title, $verdict_msg, 'recitation_review', '/student/feedback.php', 'check-circle');
+}
+
 /* IF ACCEPTED → AUTO-REQUEST THE NEXT PORTION for the student, so the next
    learning cycle starts without the student asking again. The helper respects
    all the restrictions the student would hit (exam/holiday/lock/completion). */
