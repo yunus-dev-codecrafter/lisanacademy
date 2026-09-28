@@ -45,6 +45,10 @@ $title   = $status === 'valid'   ? 'Certificate Verified'
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#064e3b">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32x32.png">
 <title><?= htmlspecialchars($title) ?> — Lisanun Mubeen Academy</title>
 <style>
   :root{

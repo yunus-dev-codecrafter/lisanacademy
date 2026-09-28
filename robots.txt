@@ -8,3 +8,9 @@ Disallow: /config/
 Disallow: /student/
 Disallow: /tmp/
 Disallow: /uploads/
+
+# Always allow PWA essentials
+Allow: /manifest.json
+Allow: /sw.js
+Allow: /offline.html
+Allow: /assets/icons/

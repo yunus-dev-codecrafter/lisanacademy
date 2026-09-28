@@ -7,6 +7,16 @@
 if (!function_exists('ui_css')) {
     function ui_css() {
         return '<meta charset="UTF-8">' . "\n" .
+               '<meta name="viewport" content="width=device-width, initial-scale=1.0">' . "\n" .
+               '<meta name="theme-color" content="#064e3b">' . "\n" .
+               '<meta name="mobile-web-app-capable" content="yes">' . "\n" .
+               '<meta name="apple-mobile-web-app-capable" content="yes">' . "\n" .
+               '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">' . "\n" .
+               '<meta name="apple-mobile-web-app-title" content="Lisanun Mubeen">' . "\n" .
+               '<link rel="manifest" href="/manifest.json">' . "\n" .
+               '<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">' . "\n" .
+               '<link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32x32.png">' . "\n" .
+               '<link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/favicon-16x16.png">' . "\n" .
                '<link rel="stylesheet" href="/assets/CSS/base.css">' . "\n" .
                '<link rel="stylesheet" href="/assets/CSS/components.css">' . "\n" .
                '<link rel="stylesheet" href="/assets/CSS/layout.css">' . "\n" .
@@ -190,6 +200,11 @@ if (!function_exists('ui_sidebar')) {
         <div class="nav-section">Menu</div>
         ' . $links . '
     </nav>
+    <div class="sidebar-pwa-install" id="sidebarPwaInstall" style="display:none;padding:12px 14px 4px;">
+        <button type="button" class="btn btn-gold btn-block btn-sm" onclick="triggerPwaInstall()" style="gap:8px;font-weight:600;width:100%;box-shadow:0 4px 12px rgba(201,162,75,.25);">
+            ' . ui_icon('download', 16) . ' Install App
+        </button>
+    </div>
     <div class="sidebar-footer">&copy; Lisanun Mubeen Academy 2026</div>
 </aside>
 <div class="sidebar-overlay" id="sidebarOverlay"></div>';
@@ -268,6 +283,7 @@ if (!function_exists('ui_page_end')) {
         echo '</div>' . "\n";
         echo '<script src="/assets/js/sidebar.js"></script>' . "\n";
         echo '<script src="/assets/js/audio_player.js"></script>' . "\n";
+        echo '<script src="/assets/js/pwa.js"></script>' . "\n";
     }
 }
 

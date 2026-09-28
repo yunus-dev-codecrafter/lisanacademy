@@ -18,6 +18,13 @@ $error   = isset($_GET['error']) ? trim($_GET['error']) : '';
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Register — Lisanun Mubeen Academy</title>
 <meta name="description" content="Apply to join Lisanun Mubeen Academy — a structured online Qur'an learning academy.">
+<meta name="theme-color" content="#064e3b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Lisanun Mubeen">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32x32.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -147,5 +154,6 @@ $error   = isset($_GET['error']) ? trim($_GET['error']) : '';
     </div>
 </div>
 
+<script src="/assets/js/pwa.js"></script>
 </body>
 </html>

@@ -12,6 +12,13 @@ $error = isset($_GET['error']) ? trim($_GET['error']) : '';
 <meta charset="UTF-8">
 <title>Lisanun Mubeen Academy — Login</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#064e3b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Lisanun Mubeen">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32x32.png">
 <link rel="stylesheet" href="../assets/CSS/base.css">
 <link rel="stylesheet" href="../assets/CSS/components.css">
 <link rel="stylesheet" href="../assets/CSS/layout.css">
@@ -63,5 +70,6 @@ $error = isset($_GET['error']) ? trim($_GET['error']) : '';
     </div>
 </div>
 
+<script src="/assets/js/pwa.js"></script>
 </body>
 </html>

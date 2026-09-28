@@ -5,11 +5,35 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 # Disable directory listing
 Options -Indexes
 
+# Allow PWA manifest and service worker
+<Files "manifest.json">
+  Require all granted
+</Files>
+<Files "manifest.webmanifest">
+  Require all granted
+</Files>
+<Files "sw.js">
+  Require all granted
+</Files>
+
 # Block direct access to sensitive files
-<FilesMatch "\.(sql|md|ini|log|json|sh)$">
+<FilesMatch "\.(sql|md|ini|log|sh)$">
   Require all denied
 </FilesMatch>
 
 # Block direct web access to config / tmp folders
 RewriteRule ^config/ - [F,L]
 RewriteRule ^tmp/ - [F,L]
+
+# Service worker and manifest MIME headers
+<IfModule mod_headers.c>
+  <Files "sw.js">
+    Header set Service-Worker-Allowed "/"
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+  </Files>
+</IfModule>
+
+<IfModule mod_mime.c>
+  AddType application/manifest+json .json .webmanifest
+  AddType application/javascript .js
+</IfModule>

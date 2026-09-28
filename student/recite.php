@@ -30,6 +30,10 @@ if (student_exam_locked($conn, (int)$_SESSION['user_id'])) {
     <title>Record Recitation</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#064e3b">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32x32.png">
     <link rel="stylesheet" href="/assets/CSS/base.css">
     <link rel="stylesheet" href="/assets/CSS/components.css">
     <link rel="stylesheet" href="/assets/CSS/layout.css">

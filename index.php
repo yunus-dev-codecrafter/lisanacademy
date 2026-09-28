@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 // htdocs/index.php — Lisanun Mubeen Academy public homepage.
 // The academy's primary marketing / conversion page.
 
@@ -80,7 +80,15 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
 <meta property="og:description" content="Learn, recite and progress in your Qur'an journey with Lisanun Mubeen Academy through structured online learning, live recitation, progress tracking and certificates.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="/">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📜</text></svg>">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/assets/icons/favicon-16x16.png">
+<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#064e3b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lisanun Mubeen">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -143,6 +151,7 @@ $dashboard_url = ($_SESSION['role'] ?? '') === 'admin' ? '/admin/dashboard.php' 
             <div class="hero-cta">
                 <a class="btn btn-gold btn-lg" href="/register.php"><?= ui_icon('user', 18) ?> Register Now</a>
                 <a class="btn btn-outline" href="/auth/login.php"><?= ui_icon('logout', 18) ?> Login</a>
+                <button id="heroPwaInstall" data-pwa-install class="btn btn-outline" style="display:none;border-color:rgba(255,255,255,.5);color:#fff;" onclick="triggerPwaInstall()"><?= ui_icon('download', 18) ?> Install App</button>
             </div>
             <p class="hero-note">
                 <span class="dot"></span> Join today for <strong>₦3,000 per term</strong> &nbsp;·&nbsp;
@@ -695,5 +704,6 @@ if (function_exists('islamiyya_books')) {
 })();
 </script>
 
+<script src="/assets/js/pwa.js"></script>
 </body>
 </html>
