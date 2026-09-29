@@ -304,7 +304,10 @@ if (!function_exists('ui_page_start')) {
         echo ui_topbar($title, $subtitle) . "\n";
         echo '<main class="main-content">' . "\n";
 
-        // Visible post-login notification banner (controlled by notifications.js)
+        // Visible post-login notification banner (controlled by notifications.js).
+        // Student-only: admins keep the bell/tray in the topbar but must never
+        // see this student-targeted prompt at the top of the content area.
+        if ($role !== 'admin') {
         echo '
 <div id="pwaNotificationBanner" class="pwa-notif-banner animate-rise" style="display:none;">
     <div class="pwa-notif-left">
@@ -323,6 +326,7 @@ if (!function_exists('ui_page_start')) {
         </button>
     </div>
 </div>' . "\n";
+        }
     }
 }
 

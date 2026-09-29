@@ -238,6 +238,22 @@ select.form-select{appearance:none;background-image:url("data:image/svg+xml,%3Cs
 .badge-grey{background:#eceff0;color:var(--text-muted)}
 .badge-blue{background:var(--info-bg);color:var(--info)}
 .badge-count{background:linear-gradient(135deg,var(--gold-deep),var(--gold));color:#fff;box-shadow:var(--shadow-gold)}
+/* Generic count pill for use outside .nav-link (e.g. dashboard jump pills).
+   layout.css only styles .nav-link .nav-badge, leaving bare uses unstyled. */
+.nav-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:20px;
+  height:20px;
+  padding:0 6px;
+  border-radius:999px;
+  background:var(--danger,#dc2626);
+  color:#fff;
+  font-size:.72rem;
+  font-weight:700;
+  line-height:1;
+}
 
 /* ---------------- Progress ---------------- */
 .progress{position:relative;background:#e5e9e4;border-radius:var(--radius-pill);height:14px;overflow:hidden}
@@ -597,3 +613,22 @@ audio::-webkit-media-controls-panel{background:var(--emerald-50)}
 .pwa-notif-left strong{display:block;font-size:0.96rem;margin-bottom:2px;color:#fff}
 .pwa-notif-left p{margin:0;font-size:0.84rem;color:rgba(255,255,255,.82);line-height:1.35}
 .pwa-notif-right{display:flex;align-items:center;gap:8px;flex:none}
+@media (max-width:640px){
+  .pwa-notif-banner{padding:12px 14px;gap:12px}
+  .pwa-notif-right{width:100%}
+  .pwa-notif-right .btn{flex:1;justify-content:center}
+  /* Center the tray in the viewport on phones.
+     The bell sits inset from the right edge (avatar + logout buttons
+     are further right), so absolute right:0 would push the 360px-wide
+     tray off the left side of small screens. */
+  .notif-tray{
+    position:fixed;
+    top:calc(var(--topbar-h,64px) + 8px);
+    left:12px;
+    right:12px;
+    width:auto;
+    max-width:none;
+    max-height:70vh;
+  }
+  .notif-tray-list{max-height:calc(70vh - 60px)}
+}

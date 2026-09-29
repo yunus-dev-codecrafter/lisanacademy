@@ -3,7 +3,7 @@
    sw.js · Enables PWA installability, asset caching, offline fallback & Push notifications
    ========================================================= */
 
-const CACHE_NAME = 'lisanun-pwa-v2';
+const CACHE_NAME = 'lisanun-pwa-v3';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_ASSETS = [
@@ -121,12 +121,19 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-/* 4. Push event: Received from Web Push Server */
+/* 4. Push event: Received from Web Push Server.
+   Supports two forms:
+   a) Full payload {title, body, url, badge} — shown directly.
+   b) Tickle (empty body, sent by our PHP sender) — the worker fetches the
+      latest unread notification + count, then shows it and sets the
+      OS app-icon badge. This is what makes notifications + the 1/2/3 badge
+      appear even when the app is closed. */
 self.addEventListener('push', (event) => {
   let data = {
     title: 'Lisanun Mubeen Academy',
     body: 'You have a new update from Lisanun Mubeen.',
     url: '/',
+    badgeCount: 0,
     icon: '/assets/icons/icon-192.png',
     badge: '/assets/icons/favicon-32x32.png'
   };
@@ -137,43 +144,85 @@ self.addEventListener('push', (event) => {
     } catch (e) {
       data.body = event.data.text();
     }
+    event.waitUntil(showPushNotification(data));
+    return;
   }
 
+  // Tickle: resolve content from the server (session cookie is included).
+  event.waitUntil(
+    fetch('/api/notifications.php?action=get', { credentials: 'include' })
+      .then((res) => (res && res.ok ? res.json() : null))
+      .then((json) => {
+        if (json && json.success && json.notifications && json.notifications.length) {
+          const latest = json.notifications[0];
+          data.title = latest.title || data.title;
+          data.body = latest.message || data.body;
+          data.url = latest.action_url || '/';
+          data.badgeCount = parseInt(json.unread_count, 10) || 0;
+        }
+        return showPushNotification(data);
+      })
+      .catch(() => showPushNotification(data))
+  );
+});
+
+function showPushNotification(data) {
+  const count = parseInt(data.badgeCount, 10) || 0;
+
+  // Mirror the unread count onto the installed app icon (1, 2, 3 …).
+  try {
+    if (count > 0 && 'setAppBadge' in navigator) {
+      return navigator.setAppBadge(count).catch(() => {}).then(() => displayPush(data));
+    }
+  } catch (e) { /* Badge API unsupported — still show the notification */ }
+
+  return displayPush(data);
+}
+
+function displayPush(data) {
   const options = {
     body: data.body,
     icon: data.icon || '/assets/icons/icon-192.png',
     badge: data.badge || '/assets/icons/favicon-32x32.png',
     vibrate: [150, 60, 150],
+    tag: 'lisanun-notif',
+    renotify: true,
     data: {
       url: data.url || '/'
     }
   };
 
-  event.waitUntil(
-    self.registration.showNotification(data.title, options)
-  );
-});
+  return self.registration.showNotification(data.title, options);
+}
 
-/* 5. Notification click event: Open/focus target page in app */
+/* 5. Notification click event: Open/focus target page in app.
+   Also clears the OS app-icon badge — the fresh count is re-applied on the
+   next page load / poll via the in-app badge sync. */
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const targetUrl = (event.notification.data && event.notification.data.url)
     ? event.notification.data.url
     : '/';
 
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // If a window is already open, focus it and navigate
-      for (const client of clientList) {
-        if (client.url.includes(self.location.origin) && 'focus' in client) {
-          client.navigate(targetUrl);
-          return client.focus();
-        }
+  const openJob = clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    // If a window is already open, focus it and navigate
+    for (const client of clientList) {
+      if (client.url.includes(self.location.origin) && 'focus' in client) {
+        client.navigate(targetUrl);
+        return client.focus();
       }
-      // Otherwise open new window
-      if (clients.openWindow) {
-        return clients.openWindow(targetUrl);
-      }
-    })
-  );
+    }
+    // Otherwise open new window
+    if (clients.openWindow) {
+      return clients.openWindow(targetUrl);
+    }
+  });
+
+  const badgeJob = (async () => {
+    try {
+      if ('clearAppBadge' in navigator) await navigator.clearAppBadge();
+    } catch (e) { /* ignore */ }
+  })();
+
+  event.waitUntil(Promise.all([openJob, badgeJob]));
 });

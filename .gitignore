@@ -1,5 +1,6 @@
 # Secrets / local configuration (never commit real credentials)
 config/db.local.php
+config/vapid_keys.json
 
 # Runtime data (PHP sessions) — but keep the hardening .htaccess tracked
 tmp/*

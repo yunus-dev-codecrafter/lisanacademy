@@ -5,6 +5,11 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../config/security/helpers.php';
 require_once __DIR__ . '/../config/db.php';
 
+// Emergency opt-out: ?no_push=1 stores the reminder without waking devices.
+if (isset($_GET['no_push']) && $_GET['no_push'] === '1') {
+    define('LISANUN_SKIP_PUSH', true);
+}
+
 $force = isset($_GET['force']) && ($_GET['force'] === '1' || $_GET['force'] === 'true');
 $key = $_GET['key'] ?? '';
 

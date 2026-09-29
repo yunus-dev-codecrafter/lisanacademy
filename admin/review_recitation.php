@@ -5,6 +5,8 @@ require '../auth/auth_check.php';
 require '../config/db.php';
 require '../config/audio_fix.php';
 
+csrf_verify();
+
 $rec_id   = (int)$_POST['rec_id'];
 $status   = $_POST['status']; // accepted or rejected
 $rating   = $_POST['rating'] ?? null;

@@ -175,6 +175,38 @@ $cnt_g = count($assistance_requests);
 <title>Teaching Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <?= ui_css() ?>
+<style>
+/* Teaching dashboard: sticky section jumps, search, recording indicator */
+.teach-jumps{
+  position:sticky;
+  top:calc(var(--topbar-h,64px) + 8px);
+  z-index:30;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:12px;
+  padding:10px 12px;
+  background:rgba(255,255,255,.92);
+  backdrop-filter:blur(8px);
+  border:1px solid var(--border);
+  border-radius:var(--radius,14px);
+  box-shadow:var(--shadow-sm,0 2px 8px rgba(15,23,42,.06));
+}
+.teach-jumps .btn{box-shadow:none}
+h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 120px)}
+.teach-search-row{display:flex;align-items:center;gap:10px;margin-top:12px}
+.teach-search-row .form-input{max-width:340px}
+.rec-ind{display:none;align-items:center;gap:8px;font-size:.82rem;font-weight:700;color:#b91c1c}
+.rec-ind.on{display:inline-flex}
+.rec-dot{width:10px;height:10px;border-radius:50%;background:#dc2626;animation:recPulse 1.1s ease-in-out infinite}
+@keyframes recPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(.6);opacity:.5}}
+.teach-status{font-size:.82rem;color:var(--text-muted);margin:8px 0 0}
+.teach-status.err{color:#b91c1c}
+.teach-status.ok{color:#047857}
+@media (max-width:640px){
+  .teach-search-row .form-input{max-width:none;flex:1}
+}
+</style>
 </head>
 <?php ui_page_start('admin', 'teaching', 'Teaching', 'Dashboard'); ?>
 
@@ -192,12 +224,19 @@ $cnt_g = count($assistance_requests);
     if ($cnt_g > 0) $jumps[] = ['#sec-g', 'G · Assistance', $cnt_g];
     ?>
     <?php if (!empty($jumps)): ?>
-    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+    <div class="teach-jumps">
         <?php foreach ($jumps as [$url, $label, $cnt]): ?>
             <a href="<?= htmlspecialchars($url) ?>" class="btn btn-sm btn-outline-light" style="gap:6px;">
-                <?= htmlspecialchars($label) ?> <span class="nav-badge" style="background:var(--danger);color:#fff;min-width:18px;text-align:center;"><?= $cnt ?></span>
+                <?= htmlspecialchars($label) ?> <span class="nav-badge"><?= $cnt ?></span>
             </a>
         <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+    <?php $cnt_total = $cnt_a + $cnt_b + $cnt_c + $cnt_d + $cnt_e + $cnt_f + $cnt_g; ?>
+    <?php if ($cnt_total > 0): ?>
+    <div class="teach-search-row">
+        <input id="teachSearch" class="form-input" type="search" placeholder="Filter by student name or email…" autocomplete="off" aria-label="Filter cards by student">
+        <span id="teachSearchCount" class="small text-muted"></span>
     </div>
     <?php endif; ?>
 </div>
@@ -212,6 +251,18 @@ $cnt_g = count($assistance_requests);
     <div class="alert alert-danger animate-rise" style="margin-bottom:14px;">
         <?= ui_icon('alert', 18) ?>
         <span style="flex:1;"><?= htmlspecialchars($_GET['error']) ?></span>
+    </div>
+<?php endif; ?>
+<?php if (isset($_GET['deleted'])): ?>
+    <div class="alert alert-success animate-rise" style="margin-bottom:14px;">
+        <?= ui_icon('check-circle', 18) ?>
+        <span style="flex:1;">Recitation deleted.</span>
+    </div>
+<?php endif; ?>
+<?php if (isset($_GET['request_deleted'])): ?>
+    <div class="alert alert-success animate-rise" style="margin-bottom:14px;">
+        <?= ui_icon('check-circle', 18) ?>
+        <span style="flex:1;">Lesson request deleted.</span>
     </div>
 <?php endif; ?>
 
@@ -237,10 +288,27 @@ $cnt_g = count($assistance_requests);
                 &nbsp;Verses <?= (int)$r['from_verse'] ?>–<?= (int)$r['to_verse'] ?>
             </p>
 
+            <?php
+            $wait_ts = !empty($r['submitted_at']) ? strtotime($r['submitted_at']) : false;
+            $wait_h = ($wait_ts !== false) ? max(0, (time() - $wait_ts) / 3600) : null;
+            if ($wait_h !== null) {
+                $wait_label = $wait_h < 1
+                    ? 'waiting ' . max(1, (int)round($wait_h * 60)) . 'm'
+                    : ($wait_h < 24
+                        ? 'waiting ' . (int)floor($wait_h) . 'h'
+                        : 'waiting ' . (int)floor($wait_h / 24) . 'd ' . ((int)floor($wait_h) % 24) . 'h');
+            }
+            ?>
+            <p class="small text-muted" style="margin:2px 0 8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <span><?= ui_icon('clock', 13) ?> Submitted <?= $wait_ts !== false ? date('d M Y, g:i A', $wait_ts) : '—' ?><?= $wait_h !== null ? ' · ' . htmlspecialchars($wait_label) : '' ?></span>
+                <?php if ($wait_h !== null && $wait_h >= 48): ?><span class="badge badge-red">Overdue — 48h+</span><?php endif; ?>
+            </p>
+
             <?= media_player_html($r['audio_file'], '../uploads/student_audio/') ?>
 
             <form method="POST" action="review_recitation.php" enctype="multipart/form-data" style="margin-top:6px;">
                 <input type="hidden" name="rec_id" value="<?= (int)$r['rec_id'] ?>">
+                <?= csrf_field() ?>
 
                 <div class="grid-2">
                     <div class="form-group">
@@ -284,6 +352,7 @@ $cnt_g = count($assistance_requests);
                 <form method="POST" action="delete_recitation.php"
                       onsubmit="return confirm('Delete this recitation permanently?');">
                     <input type="hidden" name="rec_id" value="<?= (int)$r['rec_id'] ?>">
+                    <?= csrf_field() ?>
                     <button type="submit" class="btn btn-sm btn-danger"><?= ui_icon('trash', 15) ?> Delete Recitation</button>
                 </form>
             </div>
@@ -323,6 +392,7 @@ $cnt_g = count($assistance_requests);
     <form method="post" enctype="multipart/form-data" action="submit_admin_audio.php">
         <input type="hidden" name="student_id" value="<?= (int)$row['student_id'] ?>">
         <input type="hidden" name="plan_id" value="<?= (int)$row['lesson_id'] ?>">
+        <?= csrf_field() ?>
         <div class="form-group">
             <label class="form-label">Upload Lesson Audio</label>
             <input class="file-input" type="file" name="audio" accept="audio/*" required>
@@ -331,14 +401,16 @@ $cnt_g = count($assistance_requests);
     </form>
     <?php else: ?>
 
-    <div style="display:flex;gap:10px;flex-wrap:wrap;">
-        <button class="btn btn-sm" onclick="startRecording(<?= (int)$row['lesson_id'] ?>)"><?= ui_icon('mic', 15) ?> Start Recording</button>
-        <button class="btn btn-sm btn-ghost" onclick="stopRecording(<?= (int)$row['lesson_id'] ?>)"><?= ui_icon('stop', 15) ?> Stop</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-sm" id="recstart_<?= (int)$row['lesson_id'] ?>" onclick="startRecording(<?= (int)$row['lesson_id'] ?>)"><?= ui_icon('mic', 15) ?> Start Recording</button>
+        <button class="btn btn-sm btn-ghost" id="recstop_<?= (int)$row['lesson_id'] ?>" onclick="stopRecording(<?= (int)$row['lesson_id'] ?>)" disabled><?= ui_icon('stop', 15) ?> Stop</button>
+        <span class="rec-ind" id="recind_<?= (int)$row['lesson_id'] ?>"><span class="rec-dot"></span> REC <span id="rectime_<?= (int)$row['lesson_id'] ?>">0:00</span></span>
     </div>
 
-    <audio id="audio_<?= (int)$row['lesson_id'] ?>" controls></audio>
+    <audio id="audio_<?= (int)$row['lesson_id'] ?>" controls style="display:none;width:100%;margin-top:10px;"></audio>
+    <p class="teach-status" id="recmsg_<?= (int)$row['lesson_id'] ?>" style="display:none;"></p>
 
-    <button class="btn btn-gold" id="send_<?= (int)$row['lesson_id'] ?>"
+    <button class="btn btn-gold" id="send_<?= (int)$row['lesson_id'] ?>" style="display:none;margin-top:10px;"
     onclick="sendAdminAudio(<?= (int)$row['student_id'] ?>, <?= (int)$row['lesson_id'] ?>)">
     <?= ui_icon('send', 16) ?> Send to Student
     </button>
@@ -349,6 +421,7 @@ $cnt_g = count($assistance_requests);
         <form method="POST" action="delete_request.php"
         onsubmit="return confirm('Delete this request permanently?');">
             <input type="hidden" name="lesson_id" value="<?= (int)$row['lesson_id'] ?>">
+            <?= csrf_field() ?>
             <button type="submit" class="btn btn-sm btn-danger"><?= ui_icon('trash', 15) ?> Delete Request</button>
         </form>
     </div>
@@ -386,9 +459,10 @@ $cnt_g = count($assistance_requests);
         <span class="text-muted"><?= ui_icon('clock', 14) ?> <?= htmlspecialchars($lr['preferred_time']) ?></span>
     </p>
 
-    <div style="display:flex;gap:10px;">
-        <button class="btn btn-sm" onclick="handleLiveRequest(<?= (int)$lr['id'] ?>,'accepted')"><?= ui_icon('check', 15) ?> Accept</button>
-        <button class="btn btn-sm btn-danger" onclick="handleLiveRequest(<?= (int)$lr['id'] ?>,'rejected')"><?= ui_icon('close', 15) ?> Reject</button>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-sm" onclick="handleLiveRequest(<?= (int)$lr['id'] ?>,'accepted',this)"><?= ui_icon('check', 15) ?> Accept</button>
+        <button class="btn btn-sm btn-danger" onclick="handleLiveRequest(<?= (int)$lr['id'] ?>,'rejected',this)"><?= ui_icon('close', 15) ?> Reject</button>
+        <span class="teach-status" id="livemsg_<?= (int)$lr['id'] ?>" style="display:none;margin:0;"></span>
     </div>
 
 </div>
@@ -666,70 +740,225 @@ $cnt_g = count($assistance_requests);
 
 <script src="/assets/js/recorder.js"></script>
 <script>
-let mediaRecorder=null;
-const recordedBlobs={};
-const recordedStreams={};
-const recordedMimes={};
-const recordedExts={};
+const TEACH_CSRF = '<?= csrf_token() ?>';
 
-const __picked = (window.Recorder ? Recorder.pick() : { mime: '', ext: 'webm' });
-const MIME = __picked.mime;
-const REC_EXT = __picked.ext;
+/* ---------- Section B: lesson voice recorder (one active recording at a time) ---------- */
+const recState = {}; // lessonId -> { recorder, stream, chunks, mime, ext, blob }
+let activeRecId = null;
+let recTickTimer = null;
+let recSecs = 0;
 const REC_MAX_MS = 5 * 60 * 1000;
 let recMaxTimer = null;
 
-function startRecording(id){
-if (!window.Recorder || !Recorder.supported()) { alert('Recording is not supported here.'); return; }
-navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
-recordedBlobs[id]=[];
-recordedStreams[id]=stream;
-recordedMimes[id]=MIME; recordedExts[id]=REC_EXT;
-try { mediaRecorder=Recorder.create(stream, MIME); }
-catch(e){ alert('Could not start recording.'); stream.getTracks().forEach(t=>t.stop()); return; }
-try { if (mediaRecorder.mimeType) recordedMimes[id]=mediaRecorder.mimeType; } catch(e){}
-mediaRecorder.ondataavailable=e=>{ if(e.data && e.data.size) recordedBlobs[id].push(e.data); };
-mediaRecorder.onerror=()=>{ clearTimeout(recMaxTimer); alert('Recording failed. Please try again.'); };
-try { mediaRecorder.start(1000); } catch(e){ alert('Could not start recording.'); return; }
-recMaxTimer=setTimeout(()=>{
-if(mediaRecorder && mediaRecorder.state==='recording'){
-mediaRecorder.stop();
-alert('Recording stopped automatically after 5 minutes.');
-}
-}, REC_MAX_MS);
-}).catch(()=>alert('Mic access denied. You can upload an audio file instead.'));
+function recEls(id) {
+  return {
+    start: document.getElementById('recstart_' + id),
+    stop: document.getElementById('recstop_' + id),
+    ind: document.getElementById('recind_' + id),
+    time: document.getElementById('rectime_' + id),
+    audio: document.getElementById('audio_' + id),
+    send: document.getElementById('send_' + id),
+    msg: document.getElementById('recmsg_' + id)
+  };
 }
 
-function stopRecording(id){
-mediaRecorder.onstop=()=>{
-clearTimeout(recMaxTimer);
-const blob=Recorder.makeBlob(recordedBlobs[id], mediaRecorder, recordedMimes[id]);
-if (!blob || blob.size === 0) { alert('Recording is empty. Please record again.'); return; }
-document.getElementById('audio_'+id).src=URL.createObjectURL(blob);
-document.getElementById('send_'+id).style.display='inline-flex';
-recordedBlobs[id]=blob;
-if(recordedStreams[id]) recordedStreams[id].getTracks().forEach(t=>t.stop());
-};
-mediaRecorder.stop();
+function recMsg(id, text, kind) {
+  const m = recEls(id).msg;
+  if (!m) return;
+  m.style.display = text ? 'block' : 'none';
+  m.textContent = text || '';
+  m.classList.toggle('err', kind === 'err');
+  m.classList.toggle('ok', kind === 'ok');
 }
 
-function sendAdminAudio(studentId, lessonId){
-const fd=new FormData();
-fd.append('audio',recordedBlobs[lessonId],'admin_audio_'+lessonId+'.'+(recordedExts[lessonId] || REC_EXT));
-fd.append('student_id',studentId);
-fd.append('plan_id',lessonId);
-fetch('submit_admin_audio.php',{method:'POST',body:fd}).then(()=>location.reload());
+function recClock(id) {
+  const t = recEls(id).time;
+  if (t) t.textContent = Math.floor(recSecs / 60) + ':' + String(recSecs % 60).padStart(2, '0');
 }
 
-function handleLiveRequest(id,action){
-const fd=new FormData();
-fd.append('id',id);
-fd.append('action',action);
-fetch('handle_live_request.php',{method:'POST',body:fd})
-.then(r=>r.text()).then(res=>{
-if(res.trim()==='OK')location.reload();
-else alert(res);
-});
+function recResetButtons(id, recording) {
+  const e = recEls(id);
+  if (e.start) e.start.disabled = recording;
+  if (e.stop) e.stop.disabled = !recording;
+  if (e.ind) e.ind.classList.toggle('on', recording);
 }
+
+function recClearTimers() {
+  if (recTickTimer) { clearInterval(recTickTimer); recTickTimer = null; }
+  if (recMaxTimer) { clearTimeout(recMaxTimer); recMaxTimer = null; }
+}
+
+function startRecording(id) {
+  if (activeRecId !== null && activeRecId !== id) {
+    alert('Stop the current recording first before starting a new one.');
+    return;
+  }
+  if (activeRecId === id) return; // already recording
+  if (!window.Recorder || !Recorder.supported()) { alert('Recording is not supported here. You can upload an audio file instead (iPhone rows).'); return; }
+
+  const picked = Recorder.pick();
+  // Fresh take: hide any previous playback until the new take is ready.
+  const e = recEls(id);
+  if (e.audio) { e.audio.removeAttribute('src'); e.audio.style.display = 'none'; }
+  if (e.send) e.send.style.display = 'none';
+  recMsg(id, '', '');
+
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    const st = { recorder: null, stream: stream, chunks: [], mime: picked.mime, ext: picked.ext, blob: null };
+    try {
+      st.recorder = Recorder.create(stream, picked.mime);
+    } catch (err) {
+      stream.getTracks().forEach(t => t.stop());
+      alert('Could not start recording.');
+      return;
+    }
+    try { if (st.recorder.mimeType) st.mime = st.recorder.mimeType; } catch (err) {}
+    st.recorder.ondataavailable = ev => { if (ev.data && ev.data.size) st.chunks.push(ev.data); };
+    st.recorder.onerror = () => {
+      recClearTimers();
+      stream.getTracks().forEach(t => t.stop());
+      activeRecId = null;
+      recResetButtons(id, false);
+      recMsg(id, 'Recording failed. Please try again.', 'err');
+    };
+    try {
+      st.recorder.start(1000);
+    } catch (err) {
+      stream.getTracks().forEach(t => t.stop());
+      alert('Could not start recording.');
+      return;
+    }
+    recState[id] = st;
+    activeRecId = id;
+    recSecs = 0;
+    recClock(id);
+    recResetButtons(id, true);
+    recTickTimer = setInterval(() => { recSecs++; recClock(id); }, 1000);
+    recMaxTimer = setTimeout(() => {
+      if (activeRecId === id) {
+        stopRecording(id);
+        recMsg(id, 'Stopped automatically after 5 minutes. Review it above, then Send.', 'ok');
+      }
+    }, REC_MAX_MS);
+  }).catch(() => alert('Mic access denied. You can upload an audio file instead.'));
+}
+
+function stopRecording(id) {
+  const st = recState[id];
+  if (!st || !st.recorder) return; // never started (or already stopped) — no crash
+  if (activeRecId !== id) return;
+  try {
+    if (st.recorder.state !== 'recording') return;
+  } catch (err) { /* fall through to stop attempt */ }
+
+  st.recorder.onstop = () => {
+    recClearTimers();
+    activeRecId = null;
+    const blob = Recorder.makeBlob(st.chunks, st.recorder, st.mime);
+    if (st.stream) st.stream.getTracks().forEach(t => t.stop());
+    recResetButtons(id, false);
+    if (!blob || blob.size === 0) {
+      recMsg(id, 'Recording is empty. Please record again.', 'err');
+      return;
+    }
+    st.blob = blob;
+    const e = recEls(id);
+    if (e.audio) {
+      e.audio.src = URL.createObjectURL(blob);
+      e.audio.style.display = 'block';
+    }
+    if (e.send) e.send.style.display = 'inline-flex';
+    recMsg(id, 'Ready — listen above, then tap "Send to Student".', 'ok');
+  };
+  try {
+    st.recorder.stop();
+  } catch (err) {
+    recClearTimers();
+    activeRecId = null;
+    recResetButtons(id, false);
+  }
+}
+
+function sendAdminAudio(studentId, lessonId) {
+  const e = recEls(lessonId);
+  const st = recState[lessonId];
+  if (!st || !st.blob) {
+    recMsg(lessonId, 'Record audio first (Start → Stop), then send.', 'err');
+    return;
+  }
+  if (e.send) e.send.disabled = true;
+  recMsg(lessonId, 'Sending…', '');
+  const fd = new FormData();
+  fd.append('audio', st.blob, 'admin_audio_' + lessonId + '.' + (st.ext || 'webm'));
+  fd.append('student_id', studentId);
+  fd.append('plan_id', lessonId);
+  fd.append('csrf_token', TEACH_CSRF);
+  fetch('submit_admin_audio.php', { method: 'POST', body: fd })
+    .then(res => {
+      if (!res.ok) throw new Error('Upload failed (HTTP ' + res.status + ').');
+      location.reload();
+    })
+    .catch(err => {
+      if (e.send) e.send.disabled = false;
+      recMsg(lessonId, err.message || 'Upload failed. Please try again.', 'err');
+    });
+}
+
+function handleLiveRequest(id, action, btn) {
+  const row = btn ? btn.parentElement : null;
+  const btns = row ? row.querySelectorAll('button') : [];
+  btns.forEach(b => { b.disabled = true; });
+  const msg = document.getElementById('livemsg_' + id);
+  if (msg) { msg.style.display = 'inline'; msg.textContent = 'Working…'; }
+  const fd = new FormData();
+  fd.append('id', id);
+  fd.append('action', action);
+  fd.append('csrf_token', TEACH_CSRF);
+  fetch('handle_live_request.php', {
+    method: 'POST',
+    body: fd,
+    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+  })
+  .then(r => r.text()).then(res => {
+    if (res.trim() === 'OK') { location.reload(); return; }
+    throw new Error(res || 'Request failed.');
+  })
+  .catch(err => {
+    btns.forEach(b => { b.disabled = false; });
+    if (msg) msg.textContent = err.message || 'Failed. Try again.';
+    else alert(err.message || 'Failed. Try again.');
+  });
+}
+
+/* ---------- Hero: filter all section cards by student name/email ---------- */
+(function () {
+  const input = document.getElementById('teachSearch');
+  if (!input) return;
+  const count = document.getElementById('teachSearchCount');
+  const heads = Array.from(document.querySelectorAll('h2[id^="sec-"]'));
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    let shown = 0, cards = 0;
+    heads.forEach(h => {
+      const next = heads[heads.indexOf(h) + 1] || null;
+      let el = h.nextElementSibling, vis = 0, tot = 0;
+      while (el && el !== next) {
+        if (el.classList && el.classList.contains('card')) {
+          tot++;
+          const hit = !q || el.textContent.toLowerCase().includes(q);
+          el.style.display = hit ? '' : 'none';
+          if (hit) vis++;
+        } else if (el.classList && el.classList.contains('empty')) {
+          el.style.display = q ? 'none' : ''; // empty states are noise while searching
+        }
+        el = el.nextElementSibling;
+      }
+      h.style.display = (q && vis === 0) ? 'none' : '';
+      shown += vis; cards += tot;
+    });
+    if (count) count.textContent = q ? ('Showing ' + shown + ' of ' + cards) : '';
+  });
+})();
 </script>
 
 </body>

@@ -8,6 +8,7 @@ require '../config/audio_fix.php';
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit('Invalid request.');
 }
+csrf_verify();
 
 // Validate IDs
 if (!isset($_POST['plan_id'], $_POST['student_id']) || !is_numeric($_POST['plan_id']) || !is_numeric($_POST['student_id'])) {

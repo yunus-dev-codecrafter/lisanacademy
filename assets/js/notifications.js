@@ -24,6 +24,51 @@
         tray.classList.remove('open');
       }
     });
+
+    // Close tray with Escape (mobile-friendly) and on resize to desktop widths
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        const tray = document.getElementById('notifTray');
+        if (tray) tray.classList.remove('open');
+      }
+    });
+    window.addEventListener('resize', function () {
+      if (window.innerWidth > 640) {
+        const tray = document.getElementById('notifTray');
+        if (tray) tray.classList.remove('open');
+      }
+    });
+
+    // If permission was already granted earlier, make sure a real Web Push
+    // subscription exists so closed-app pushes + icon badges keep working.
+    ensurePushSubscription();
+  }
+
+  /* Mirror the in-app badge onto the OS/PWA app icon (1, 2, 3 …).
+     Only takes effect for the installed PWA (Android/Edge; iOS 16.4+
+     installed to Home Screen). No-ops safely in a plain browser tab. */
+  function setOsBadge(count) {
+    try {
+      const num = parseInt(count, 10) || 0;
+      if ('setAppBadge' in navigator) {
+        if (num > 0) {
+          navigator.setAppBadge(num).catch(function () {});
+        } else if ('clearAppBadge' in navigator) {
+          navigator.clearAppBadge().catch(function () {});
+        }
+      }
+    } catch (e) { /* Badge API unsupported — in-app badge still works */ }
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
   }
 
   function checkPermissionAndBanner() {
@@ -113,6 +158,9 @@
     } else {
       badge.style.display = 'none';
     }
+
+    // Keep the OS app-icon badge (1, 2, 3 …) in sync while the app is open.
+    setOsBadge(num);
   }
 
   function renderTrayList(items) {
@@ -301,23 +349,10 @@
           action_url: '/student/dashboard.php'
         });
 
-        // Try Web Push subscription if supported
-        if ('serviceWorker' in navigator && 'PushManager' in window) {
-          navigator.serviceWorker.ready.then(async (reg) => {
-            try {
-              let sub = await reg.pushManager.getSubscription();
-              if (sub) {
-                fetch('/api/notifications.php?action=update_settings', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ push_subscription: JSON.stringify(sub) })
-                });
-              }
-            } catch (e) {
-              console.log('Push subscription check:', e);
-            }
-          });
-        }
+        // Register a real Web Push subscription so the server can reach
+        // this device even when the app is closed (OS notification +
+        // app-icon badge). Best effort — in-app polling still works alone.
+        subscribeForPush();
       } else if (permission === 'denied') {
         alert('Notifications were blocked. Please enable them in your browser or device site permissions to receive updates.');
       }
@@ -331,6 +366,53 @@
     if (banner) banner.style.display = 'none';
     localStorage.setItem('lisanun_notif_banner_dismissed', Date.now());
   };
+
+  /* Fetch the server's VAPID public key (null when push isn't configured). */
+  async function fetchVapidPublicKey() {
+    try {
+      const res = await fetch('/api/notifications.php?action=public_key');
+      const data = await res.json();
+      if (data && data.success && data.public_key) return data.public_key;
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  /* Create (or reuse) a push subscription and save it server-side. */
+  async function subscribeForPush() {
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const publicKey = await fetchVapidPublicKey();
+        if (!publicKey) return; // Server push not configured yet — skip silently.
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey)
+        });
+      }
+      await fetch('/api/notifications.php?action=update_settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ push_subscription: JSON.stringify(sub) })
+      }).catch(function () {});
+    } catch (e) {
+      console.log('Push subscription:', e && e.message ? e.message : e);
+    }
+  }
+
+  /* Silent re-subscribe on every page load for users who already granted
+     permission (e.g. granted before this update, or subscription expired). */
+  function ensurePushSubscription() {
+    try {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      if (document.hidden) return; // avoid work on background preloads
+      subscribeForPush();
+    } catch (e) { /* best effort */ }
+  }
 
   // Run on DOM ready
   if (document.readyState === 'loading') {

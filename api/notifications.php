@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../config/security/helpers.php';
 require_once __DIR__ . '/../config/security/session.php';
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../config/security/push_send.php';
 
 if (!isset($_SESSION['user_id'])) {
     http_response_code(401);
@@ -21,6 +22,27 @@ if (function_exists('check_and_trigger_daily_virtue_notification')) {
 }
 
 $action = $_GET['action'] ?? ($_POST['action'] ?? 'get');
+
+if ($action === 'public_key') {
+    // VAPID public key for Web Push subscribe(). Null = push not configured.
+    echo json_encode(['success' => true, 'public_key' => push_get_public_key()]);
+    exit;
+}
+
+if ($action === 'push_test') {
+    // Sends a real closed-app push to the caller's own saved subscription.
+    // Steps: allow notifications in browser -> open this via the admin
+    // push page -> close/minimize the app -> push should still arrive.
+    $sent = push_notify_user($conn, $user_id, 'general');
+    $settings = get_user_notification_settings($conn, $user_id);
+    echo json_encode([
+        'success' => true,
+        'push_sent' => $sent,
+        'has_subscription' => !empty($settings['push_subscription']),
+        'push_configured' => push_get_public_key() !== null,
+    ]);
+    exit;
+}
 
 if ($action === 'get') {
     $unread_count = get_unread_notification_count($conn, $user_id, $role);
@@ -96,9 +118,13 @@ if ($action === 'update_settings') {
     $raw = file_get_contents('php://input');
     $data = json_decode($raw, true) ?: $_POST;
 
-    $enabled = isset($data['notifications_enabled']) ? (int)$data['notifications_enabled'] : 1;
-    $daily = isset($data['daily_reminder_enabled']) ? (int)$data['daily_reminder_enabled'] : 1;
-    $push_sub = isset($data['push_subscription']) ? (string)$data['push_subscription'] : null;
+    // Preserve existing prefs when a key is absent (e.g. the silent
+    // push re-subscribe only sends push_subscription and must not
+    // re-enable reminders the user switched off).
+    $current = get_user_notification_settings($conn, $user_id);
+    $enabled = array_key_exists('notifications_enabled', $data) ? (int)$data['notifications_enabled'] : (int)($current['notifications_enabled'] ?? 1);
+    $daily = array_key_exists('daily_reminder_enabled', $data) ? (int)$data['daily_reminder_enabled'] : (int)($current['daily_reminder_enabled'] ?? 1);
+    $push_sub = array_key_exists('push_subscription', $data) ? (string)$data['push_subscription'] : null;
 
     update_user_notification_settings($conn, $user_id, $enabled, $daily, $push_sub);
 

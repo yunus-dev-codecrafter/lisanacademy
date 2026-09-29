@@ -4836,10 +4836,12 @@ if (!function_exists('check_and_trigger_daily_virtue_notification')) {
         $title = '🌟 Daily Islamic Reminder';
         $msg = $virtue['text'] . "\n\n— " . $virtue['source'];
 
+        // Student-only: admins must not receive the daily virtue in their
+        // bell tray (and its student dashboard link is wrong for admins).
         return create_notification(
             $conn,
             null, // broadcast
-            'all',
+            'student',
             $title,
             $msg,
             'daily_virtue',
@@ -4869,7 +4871,19 @@ if (!function_exists('create_notification')) {
             ");
             $stmt->bind_param("issssss", $user_id_val, $target_role, $title, $message, $type, $action_url, $icon);
             $stmt->execute();
-            return $stmt->insert_id;
+            $new_id = $stmt->insert_id;
+
+            // Best-effort closed-app push (Web Push tickle + OS badge).
+            // Never allowed to break notification storage.
+            try {
+                require_once __DIR__ . '/push_send.php';
+                if (function_exists('push_trigger_for_notification')) {
+                    push_trigger_for_notification($conn, $user_id_val, $target_role, $type);
+                }
+            } catch (Throwable $e) {
+                error_log('create_notification push hook: ' . $e->getMessage());
+            }
+            return $new_id;
         } catch (Throwable $e) {
             error_log('create_notification error: ' . $e->getMessage());
             return false;
@@ -5029,7 +5043,7 @@ if (!function_exists('update_user_notification_settings')) {
         $daily_enabled = $daily_enabled ? 1 : 0;
 
         try {
-            if ($push_sub !== null) {
+            if ($push_sub !== null && $push_sub !== '') {
                 $stmt = $conn->prepare("
                     INSERT INTO user_notification_settings (user_id, notifications_enabled, daily_reminder_enabled, push_subscription)
                     VALUES (?, ?, ?, ?)
@@ -5038,6 +5052,18 @@ if (!function_exists('update_user_notification_settings')) {
                                            push_subscription = VALUES(push_subscription)
                 ");
                 $stmt->bind_param("iiis", $user_id, $enabled, $daily_enabled, $push_sub);
+                return $stmt->execute();
+            } elseif ($push_sub === '') {
+                // Explicit unsubscribe: clear the stored push subscription.
+                $stmt = $conn->prepare("
+                    INSERT INTO user_notification_settings (user_id, notifications_enabled, daily_reminder_enabled, push_subscription)
+                    VALUES (?, ?, ?, NULL)
+                    ON DUPLICATE KEY UPDATE notifications_enabled = VALUES(notifications_enabled),
+                                           daily_reminder_enabled = VALUES(daily_reminder_enabled),
+                                           push_subscription = NULL
+                ");
+                $stmt->bind_param("iii", $user_id, $enabled, $daily_enabled);
+                return $stmt->execute();
             } else {
                 $stmt = $conn->prepare("
                     INSERT INTO user_notification_settings (user_id, notifications_enabled, daily_reminder_enabled)

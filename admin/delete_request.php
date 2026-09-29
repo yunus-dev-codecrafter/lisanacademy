@@ -5,6 +5,7 @@ include '../auth/auth_check.php';
 include '../config/db.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['lesson_id'])) {
+    csrf_verify();
     $lesson_id = (int)$_POST['lesson_id'];
 
     // Delete the lesson request from lessons table

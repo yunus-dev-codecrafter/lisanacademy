@@ -8,6 +8,7 @@ require_role('admin');
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit('Invalid request');
 }
+csrf_verify();
 
 if (
     !isset($_POST['id'], $_POST['action']) ||
