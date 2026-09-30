@@ -131,7 +131,7 @@ foreach ((islamiyya_books($conn) ?? []) as $islamiyya_book) {
 }
 $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
 ?>
-<?php if ($islamiyya_total_count > 0 && $islamiyya_live_count === 0): ?>
+<?php if (!$is_hafiz && !$is_memorizer && $islamiyya_total_count > 0 && $islamiyya_live_count === 0): ?>
 <div class="alert alert-warning animate-rise d1" style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;">
     <?= ui_icon('book-open', 18) ?>
     <span style="flex:1;min-width:220px;"><strong>New program: Digital Islamiyya is coming soon.</strong> Classical books in Tauhid, Fiqh, Hadith, Seerah and Arabic — explore the catalog and save your slot today.</span>
@@ -139,6 +139,7 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
 </div>
 <?php endif; ?>
 <div class="stat-grid animate-rise d1">
+    <?php if (!$is_hafiz && !$is_memorizer): ?>
     <a class="stat-card stat-gold" href="islamiyya.php"
         title="Digital Islamiyya — classical books with audio/video lessons and quizzes"
         style="border:2px solid var(--gold);box-shadow:0 8px 24px rgba(180,130,30,.18);">
@@ -147,6 +148,7 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
         <span class="stat-value"><?= $islamiyya_live_count ?> <span class="small text-muted">/ <?= $islamiyya_total_count ?> live</span></span>
         <span class="stat-sub"><?= $islamiyya_live_count > 0 ? 'live books — tap to start learning' : 'explore the books & save your slot' ?></span>
     </a>
+    <?php endif; ?>
     <?php if ($is_hafiz): ?>
     <?php
     $hafiz_revision = hafiz_get_active_revision($conn, $student_id);
@@ -258,44 +260,91 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
     <div class="quran-star-content">  
         <h3><?= ui_icon('star', 20) ?> Real Qur’an Companion</h3>
         <span class="star-divider"></span>  
-        <?php  
-        /* FETCH TOP STUDENT */  
-        $top = $conn->query("  
-            SELECT u.name, COUNT(l.id) AS total_requests  
-            FROM users u  
-            LEFT JOIN lessons l ON l.student_id = u.id  
-            WHERE u.role='student'  
-            GROUP BY u.id  
-            ORDER BY total_requests DESC  
-            LIMIT 1  
-        ")->fetch_assoc();  
+        <?php
+        /* PER-CATEGORY LEADERBOARD:
+           non-hafiz = most lesson requests (unchanged);
+           Hafiz = colleagues with higher revision score (accepted + cycles);
+           Memorizer = colleague memorizers with more pages memorized. */
+        $star_mode = 'nonhafiz';
+        if ($is_hafiz) $star_mode = 'hafiz';
+        elseif ($is_memorizer) $star_mode = 'memorizer';
 
-        /* CHECK IF ALL COUNTS ARE EQUAL */  
-        $check = $conn->query("  
-            SELECT COUNT(DISTINCT request_count) c FROM (  
-                SELECT COUNT(l.id) request_count  
-                FROM users u  
-                LEFT JOIN lessons l ON l.student_id = u.id  
-                WHERE u.role='student'  
-                GROUP BY u.id  
-            ) x  
-        ")->fetch_assoc()['c'];  
+        if ($star_mode === 'hafiz') {
+            $hafiz_board = hafiz_ahead_of($conn, $student_id);
+            $ahead = $hafiz_board['ahead'];
+            if (!empty($ahead)):
+                $show = array_slice($ahead, 0, 3);
+        ?>
+            <p class="big"><?= count($ahead) ?> <?= count($ahead) === 1 ? 'Hafiz' : 'Huffaz' ?> ahead of you</p>
+            <?php foreach ($show as $hb): ?>
+                <span style="display:block;"><?= ui_icon('trophy', 13) ?> <?= htmlspecialchars($hb['name']) ?> · <?= (int)$hb['score'] ?> pts (+<?= (int)$hb['gap'] ?>)</span>
+            <?php endforeach; ?>
+            <span><?= ui_icon('book', 14) ?> Keep revising to catch up</span>
+            <?php else: ?>
+            <p class="big">Masha'Allah — you lead your Huffaz</p>
+            <span><?= ui_icon('book', 14) ?> <?= (int)$hafiz_board['mine'] ?> pts · keep your revision strong</span>
+            <?php endif; ?>
+        <?php
+        } elseif ($star_mode === 'memorizer') {
+            $mem_board = mem_ahead_of($conn, $student_id);
+            $ahead = $mem_board['ahead'];
+            if (!empty($ahead)):
+                $show = array_slice($ahead, 0, 3);
+        ?>
+            <p class="big"><?= count($ahead) ?> memorizer<?= count($ahead) === 1 ? '' : 's' ?> ahead of you</p>
+            <?php foreach ($show as $mb): ?>
+                <span style="display:block;"><?= ui_icon('star', 13) ?> <?= htmlspecialchars($mb['name']) ?> · <?= (int)$mb['pages'] ?> pages (+<?= (int)$mb['gap'] ?>)</span>
+            <?php endforeach; ?>
+            <span><?= ui_icon('book', 14) ?> Stay consistent to catch up</span>
+            <?php else: ?>
+            <p class="big">Masha'Allah — you lead your memorizers</p>
+            <span><?= ui_icon('star', 14) ?> <?= (int)$mem_board['mine'] ?> pages memorized</span>
+            <?php endif; ?>
+        <?php
+        } else {
+            /* FETCH TOP STUDENT (non-hafiz learners only; guards missing columns) */
+            $lh_where = "u.role='student'";
+            if (db_column_exists($conn, 'users', 'hafiz')) $lh_where .= " AND COALESCE(u.hafiz,0)=0";
+            if (db_column_exists($conn, 'users', 'memorizing')) $lh_where .= " AND COALESCE(u.memorizing,0)=0";
+            $top = $conn->query("
+                SELECT u.name, COUNT(l.id) AS total_requests
+                FROM users u
+                LEFT JOIN lessons l ON l.student_id = u.id
+                WHERE $lh_where
+                GROUP BY u.id
+                ORDER BY total_requests DESC
+                LIMIT 1
+            ")->fetch_assoc();
 
-        if ($top && $check > 1 && $top['total_requests'] > 0):  
+            /* CHECK IF ALL COUNTS ARE EQUAL */
+            $check = $conn->query("
+                SELECT COUNT(DISTINCT request_count) c FROM (
+                    SELECT COUNT(l.id) request_count
+                    FROM users u
+                    LEFT JOIN lessons l ON l.student_id = u.id
+                    WHERE $lh_where
+                    GROUP BY u.id
+                ) x
+            ")->fetch_assoc()['c'];
+
+            if ($top && $check > 1 && $top['total_requests'] > 0):
+        ?>
+            <p class="big"><?= htmlspecialchars($top['name']) ?></p>
+            <span><?= (int)$top['total_requests'] ?> lesson requests</span>
+        <?php else: ?>
+            <p class="quran-reminder">
+                “The most beloved deeds to Allah are those done consistently, even if they are small.”
+            </p>
+            <span><?= ui_icon('book', 14) ?> Be the first to take the lead</span>
+        <?php
+            endif;
+        }
         ?>  
-            <p class="big"><?= htmlspecialchars($top['name']) ?></p>  
-            <span><?= (int)$top['total_requests'] ?> lesson requests</span>  
-        <?php else: ?>  
-            <p class="quran-reminder">  
-                “The most beloved deeds to Allah are those done consistently, even if they are small.”  
-            </p>  
-            <span><?= ui_icon('book', 14) ?> Be the first to take the lead</span>  
-        <?php endif; ?>  
     </div>
 </div>  
 
-<!-- New Lesson card (feature) — learners only -->
-<?php if (!$is_memorizer): ?>
+<!-- New Lesson card (feature) — non-hafiz learners only -->
+<?php if (!$is_hafiz && !$is_memorizer): ?>
 <div class="card animate-rise d3">
     <div class="card-title lesson-head">
         <span class="lesson-ico"><?= ui_icon('book-open', 20) ?></span>
@@ -319,8 +368,8 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
 </div>
 <?php endif; ?>
 
-<!-- Live Recitation Card — learners only -->
-<?php if (!$exam_mode && !$is_memorizer): ?>
+<!-- Live Recitation Card — non-hafiz learners only -->
+<?php if (!$exam_mode && !$is_hafiz && !$is_memorizer): ?>
 <?php $liveUnlocked = ($lessonAudio && (int)$lessonAudio['acknowledged'] === 1); ?>
 <div class="card live-recitation-card <?= $liveUnlocked ? 'unlocked' : 'locked' ?>" id="liveRecitationCard">
     <div class="card-title" style="display:flex;align-items:center;gap:12px;">
@@ -343,6 +392,7 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
 
 <div class="section-label animate-rise d3"><?= ui_icon('grid', 16) ?> Quick Actions</div>
 <div class="action-grid">
+    <?php if (!$is_hafiz && !$is_memorizer): ?>
     <a class="action-card action-purple animate-rise d3" href="islamiyya.php">
         <span class="ac-ico"><?= ui_icon('book-open', 24) ?></span>
         <span class="ac-title">Digital Islamiyya</span>
@@ -350,6 +400,7 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
         <?php if ($islamiyya_live_count > 0): ?><span class="badge badge-count ac-badge"><?=$islamiyya_live_count?> available</span>
         <?php elseif ($islamiyya_coming_count > 0): ?><span class="badge badge-count ac-badge">Save your slot</span><?php endif; ?>
     </a>
+    <?php endif; ?>
     <?php if (!$is_hafiz && $done > 0): ?>
     <a class="action-card action-gold animate-rise d3" href="certificate.php">
         <span class="ac-ico"><?= ui_icon('gem', 24) ?></span>
@@ -395,8 +446,8 @@ $islamiyya_coming_count = $islamiyya_total_count - $islamiyya_live_count;
     </a>
 </div>
 
-<!-- Restart Learning — learners only -->
-<?php if (!$is_memorizer): ?>
+<!-- Restart Learning — non-hafiz learners only -->
+<?php if (!$is_hafiz && !$is_memorizer): ?>
 <a class="card card-danger mt-2 animate-rise" style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;text-decoration:none;color:inherit;" href="reset_progress.php">
     <div style="flex:1;min-width:220px;">
         <h3 style="color:var(--danger);margin:0 0 6px;display:flex;align-items:center;gap:8px;"><?= ui_icon('alert', 18) ?> Restart Your Learning</h3>

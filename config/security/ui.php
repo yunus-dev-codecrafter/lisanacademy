@@ -127,6 +127,7 @@ if (!function_exists('ui_sidebar')) {
                 'recitations'  => ['recitations_list.php', 'notes',  'Recitations'],
                 'fixplans'     => ['fix_plan_start_verse.php', 'book-open', 'Fix Plans'],
                 'exams'        => ['exams.php',            'clipboard', 'Exams'],
+                'fees'         => ['fees.php',             'send',   'Term Fees'],
                 'holiday'      => ['holiday_settings.php', 'clock',   'Holiday'],
                 'announcements'=> ['announcements.php',    'bell',   'Announcements'],
                 'suggestions'  => ['suggestions.php',      'bulb',   'Suggestions'],

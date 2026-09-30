@@ -134,6 +134,29 @@ if (db_table_exists($conn, 'hafiz_weekly_tests')) {
 }
 
 // ==========================
+// UNPAID TERM FEES (current term)
+// ==========================
+$unpaid_term_fees = 0;
+$current_term_label = '';
+if (function_exists('term_fee_current') && term_fees_installed($conn)) {
+    $ct = term_fee_current($conn);
+    if ($ct) {
+        $current_term_label = (string)($ct['term_label'] ?? '');
+        $map = term_fee_status_map($conn, (int)$ct['id']);
+        try {
+            $res = $conn->query("SELECT id FROM users WHERE role = 'student'");
+            $total_s = 0; $paid_s = 0;
+            while ($res && ($row = $res->fetch_assoc())) {
+                $total_s++;
+                $p = $map[(int)$row['id']] ?? null;
+                if ($p && ((string)$p['status'] === 'paid' || (string)$p['status'] === 'waived')) $paid_s++;
+            }
+            $unpaid_term_fees = max(0, $total_s - $paid_s);
+        } catch (Throwable $e) { $unpaid_term_fees = 0; }
+    }
+}
+
+// ==========================
 // TOTAL PENDING (all combined)
 // ==========================
 $pending_recitations = (int)$pending_recitations_submissions
@@ -210,6 +233,13 @@ $islamiyya_coming_count = $islamiyya_total - $islamiyya_live_count;
         <span class="stat-sub">Recitations · lessons · live · hafiz · memorizer</span>
     </div>
 
+    <a href="fees.php" class="stat-card stat-blue" title="Term school fees — who has paid and who has not">
+        <span class="stat-ico"><?= ui_icon('send', 22) ?></span>
+        <span class="stat-label">Unpaid Term Fees<?= $current_term_label !== '' ? ' · ' . htmlspecialchars($current_term_label) : '' ?></span>
+        <span class="stat-value"><?= $unpaid_term_fees ?></span>
+        <span class="stat-sub">Tap to manage payments</span>
+    </a>
+
     <a href="islamiyya.php" class="stat-card stat-blue" title="Digital Islamiyya overview — readiness counts">
         <span class="stat-ico"><?= ui_icon('book-open', 22) ?></span>
         <span class="stat-label">Islamiyya Overview</span>
@@ -245,6 +275,15 @@ $islamiyya_coming_count = $islamiyya_total - $islamiyya_live_count;
         <?php endif; ?>
     </a>
     <?php endif; ?>
+
+    <a href="fees.php" class="action-card action-blue">
+        <span class="ac-ico"><?= ui_icon('send', 24) ?></span>
+        <span class="ac-title">Term Fees</span>
+        <span class="ac-sub">Paid vs unpaid per term</span>
+        <?php if ($unpaid_term_fees > 0): ?>
+            <span class="badge badge-count ac-badge"><?= $unpaid_term_fees ?> unpaid</span>
+        <?php endif; ?>
+    </a>
 
     <a href="announcements.php" class="action-card action-emerald">
         <span class="ac-ico"><?= ui_icon('bell', 24) ?></span>

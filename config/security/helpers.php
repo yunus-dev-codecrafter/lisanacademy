@@ -5033,6 +5033,172 @@ if (!function_exists('get_user_notification_settings')) {
     }
 }
 
+/* =====================================================
+   CATEGORY RANKINGS: non-hafiz (lesson requests) vs
+   Hafiz (accepted pages + completed cycles) vs
+   Memorizer (pages_memorized). Safe when tables missing.
+   ===================================================== */
+
+if (!function_exists('hafiz_rank_score')) {
+    /**
+     * Total Hafiz score = completed_cycles * 604 + distinct accepted pages
+     * in the active revision. Higher = performing better.
+     */
+    function hafiz_rank_score($conn, $student_id) {
+        $student_id = (int)$student_id;
+        $cycles = function_exists('hafiz_completed_cycles_count')
+            ? (int)hafiz_completed_cycles_count($conn, $student_id) : 0;
+        $accepted = 0;
+        try {
+            if (function_exists('hafiz_get_active_revision')) {
+                $rev = hafiz_get_active_revision($conn, $student_id);
+                if ($rev && db_table_exists($conn, 'hafiz_sessions')) {
+                    $rid = (int)$rev['id'];
+                    $stmt = $conn->prepare("SELECT COUNT(DISTINCT page_no) c FROM hafiz_sessions WHERE revision_id = ? AND status = 'accepted'");
+                    $stmt->bind_param("i", $rid);
+                    $stmt->execute();
+                    $accepted = (int)($stmt->get_result()->fetch_assoc()['c'] ?? 0);
+                }
+            }
+        } catch (Throwable $e) { $accepted = 0; }
+        return ['score' => $cycles * 604 + $accepted, 'cycles' => $cycles, 'accepted' => $accepted];
+    }
+}
+
+if (!function_exists('hafiz_rank_list')) {
+    /** All Hafiz students ordered by rank score desc. Each: id, name, score, cycles, accepted. */
+    function hafiz_rank_list($conn) {
+        $out = [];
+        try {
+            if (!db_column_exists($conn, 'users', 'hafiz')) return $out;
+            $res = $conn->query("SELECT id, name FROM users WHERE role = 'student' AND hafiz = 1 ORDER BY name ASC");
+            if (!$res) return $out;
+            while ($r = $res->fetch_assoc()) {
+                $s = hafiz_rank_score($conn, (int)$r['id']);
+                $out[] = ['id' => (int)$r['id'], 'name' => $r['name'],
+                    'score' => $s['score'], 'cycles' => $s['cycles'], 'accepted' => $s['accepted']];
+            }
+            usort($out, function ($a, $b) {
+                if ($b['score'] === $a['score']) return strcmp((string)$a['name'], (string)$b['name']);
+                return $b['score'] <=> $a['score'];
+            });
+        } catch (Throwable $e) { /* ignore */ }
+        return $out;
+    }
+}
+
+if (!function_exists('hafiz_ahead_of')) {
+    /** Colleagues (Huffaz) with a strictly higher score than $student_id. */
+    function hafiz_ahead_of($conn, $student_id) {
+        $student_id = (int)$student_id;
+        $list = hafiz_rank_list($conn);
+        $mine = 0;
+        foreach ($list as $r) { if ($r['id'] === $student_id) { $mine = $r['score']; break; } }
+        $ahead = [];
+        foreach ($list as $r) {
+            if ($r['id'] !== $student_id && $r['score'] > $mine) $ahead[] = $r + ['gap' => $r['score'] - $mine];
+        }
+        return ['mine' => $mine, 'ahead' => $ahead];
+    }
+}
+
+if (!function_exists('mem_rank_list')) {
+    /** All Memorizer students ordered by pages_memorized desc. Each: id, name, pages. */
+    function mem_rank_list($conn) {
+        $out = [];
+        try {
+            if (!db_column_exists($conn, 'users', 'memorizing')) return $out;
+            if (!db_table_exists($conn, 'quran_memorization')) {
+                $res = $conn->query("SELECT id, name FROM users WHERE role = 'student' AND memorizing = 1 ORDER BY name ASC");
+                if ($res) while ($r = $res->fetch_assoc()) $out[] = ['id' => (int)$r['id'], 'name' => $r['name'], 'pages' => 0];
+                return $out;
+            }
+            $res = $conn->query("SELECT u.id, u.name, COALESCE(qm.pages_memorized, 0) pages
+                FROM users u LEFT JOIN quran_memorization qm ON qm.student_id = u.id
+                WHERE u.role = 'student' AND u.memorizing = 1 ORDER BY pages DESC, u.name ASC");
+            if ($res) while ($r = $res->fetch_assoc()) {
+                $out[] = ['id' => (int)$r['id'], 'name' => $r['name'], 'pages' => (int)$r['pages']];
+            }
+        } catch (Throwable $e) { /* ignore */ }
+        return $out;
+    }
+}
+
+if (!function_exists('mem_ahead_of')) {
+    /** Colleague Memorizers (never Huffaz) strictly ahead of $student_id. */
+    function mem_ahead_of($conn, $student_id) {
+        $student_id = (int)$student_id;
+        $list = mem_rank_list($conn);
+        $mine = 0;
+        foreach ($list as $r) { if ($r['id'] === $student_id) { $mine = $r['pages']; break; } }
+        $ahead = [];
+        foreach ($list as $r) {
+            if ($r['id'] !== $student_id && $r['pages'] > $mine) $ahead[] = $r + ['gap' => $r['pages'] - $mine];
+        }
+        return ['mine' => $mine, 'ahead' => $ahead];
+    }
+}
+
+/* =====================================================
+   TERM FEES: per-term school-fees tracking (separate from
+   the N500 exam reopen fee on exam_defaults.php).
+   ===================================================== */
+
+if (!function_exists('term_fees_installed')) {
+    function term_fees_installed($conn) {
+        return db_table_exists($conn, 'term_fees') && db_table_exists($conn, 'term_fee_payments');
+    }
+}
+
+if (!function_exists('term_fees_all')) {
+    function term_fees_all($conn) {
+        if (!db_table_exists($conn, 'term_fees')) return [];
+        try {
+            $res = $conn->query("SELECT * FROM term_fees ORDER BY id DESC");
+            $out = [];
+            if ($res) while ($r = $res->fetch_assoc()) $out[] = $r;
+            return $out;
+        } catch (Throwable $e) { return []; }
+    }
+}
+
+if (!function_exists('term_fee_current')) {
+    /** Most recent term, or null. */
+    function term_fee_current($conn) {
+        if (!db_table_exists($conn, 'term_fees')) return null;
+        try {
+            return $conn->query("SELECT * FROM term_fees ORDER BY id DESC LIMIT 1")->fetch_assoc() ?: null;
+        } catch (Throwable $e) { return null; }
+    }
+}
+
+if (!function_exists('term_fee_status_map')) {
+    /** [student_id => row] payment rows for a term. */
+    function term_fee_status_map($conn, $term_id) {
+        $term_id = (int)$term_id;
+        $out = [];
+        try {
+            if (!db_table_exists($conn, 'term_fee_payments')) return $out;
+            $stmt = $conn->prepare("SELECT * FROM term_fee_payments WHERE term_id = ?");
+            $stmt->bind_param("i", $term_id);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            while ($r = $res->fetch_assoc()) $out[(int)$r['student_id']] = $r;
+        } catch (Throwable $e) { /* ignore */ }
+        return $out;
+    }
+}
+
+if (!function_exists('term_fee_student_status')) {
+    /** 'paid' | 'pending' for one student in one term (missing row = pending). */
+    function term_fee_student_status($conn, $term_id, $student_id) {
+        $map = term_fee_status_map($conn, (int)$term_id);
+        $row = $map[(int)$student_id] ?? null;
+        if (!$row) return 'pending';
+        return ((string)$row['status'] === 'paid' || (string)$row['status'] === 'waived') ? 'paid' : 'pending';
+    }
+}
+
 if (!function_exists('update_user_notification_settings')) {
     function update_user_notification_settings($conn, $user_id, $enabled = 1, $daily_enabled = 1, $push_sub = null) {
         if (!isset($conn)) return false;
