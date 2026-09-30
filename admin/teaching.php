@@ -176,26 +176,86 @@ $cnt_g = count($assistance_requests);
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <?= ui_css() ?>
 <style>
-/* Teaching dashboard: sticky section jumps, search, recording indicator */
-.teach-jumps{
-  position:sticky;
-  top:calc(var(--topbar-h,64px) + 8px);
-  z-index:30;
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-  margin-top:12px;
-  padding:10px 12px;
-  background:rgba(255,255,255,.92);
-  backdrop-filter:blur(8px);
-  border:1px solid var(--border);
-  border-radius:var(--radius,14px);
-  box-shadow:var(--shadow-sm,0 2px 8px rgba(15,23,42,.06));
+/* Teaching dashboard — modern layout: stats, sticky tabs, tcard design */
+.teach-hero{overflow:visible}
+.tstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:14px}
+.tstat{
+  display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+  background:var(--surface,#fff);border:1px solid var(--border);border-radius:14px;
+  padding:12px 14px;cursor:pointer;text-align:left;font-family:inherit;
+  transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease;
+  position:relative;overflow:hidden;
 }
-.teach-jumps .btn{box-shadow:none}
-h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 120px)}
+.tstat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--emerald-600);opacity:.85}
+.tstat.s-b::before{background:var(--gold)} .tstat.s-c::before{background:#3b82f6}
+.tstat.s-d::before{background:#8b5cf6} .tstat.s-e::before{background:#f59e0b}
+.tstat.s-f::before{background:#7c3aed} .tstat.s-g::before{background:#d97706}
+.tstat:hover{transform:translateY(-2px);box-shadow:var(--shadow-md,0 12px 32px rgba(15,23,42,.10))}
+.tstat.is-active{border-color:var(--emerald-600);box-shadow:var(--shadow-green,0 12px 28px rgba(4,120,87,.22))}
+.tstat-ico{
+  width:30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;
+  background:var(--emerald-50,#ecfdf5);color:var(--emerald-700,#047857);margin-bottom:4px;
+}
+.s-b .tstat-ico{background:#fef6e0;color:#8a6d1c}.s-c .tstat-ico{background:#e8f1fe;color:#1d4ed8}
+.s-d .tstat-ico,.s-f .tstat-ico{background:#f1eafe;color:#7c3aed}
+.s-e .tstat-ico,.s-g .tstat-ico{background:#fef3e2;color:#b45309}
+.tstat-num{font-size:1.35rem;font-weight:800;line-height:1.1;color:var(--text)}
+.tstat-label{font-size:.72rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
+.tstat.is-zero{opacity:.55}
+.ttabs{
+  position:sticky;top:calc(var(--topbar-h,64px) + 8px);z-index:30;
+  display:flex;gap:8px;margin-top:12px;padding:10px 12px;overflow-x:auto;
+  background:rgba(255,255,255,.94);backdrop-filter:blur(8px);
+  border:1px solid var(--border);border-radius:14px;
+  box-shadow:var(--shadow-sm,0 2px 8px rgba(15,23,42,.06));
+  scrollbar-width:thin;
+}
+.ttab{
+  flex:none;display:inline-flex;align-items:center;gap:8px;
+  border:1px solid var(--border);background:var(--surface,#fff);color:var(--text);
+  border-radius:999px;padding:8px 14px;font-family:inherit;font-size:.84rem;font-weight:600;cursor:pointer;
+  transition:background .15s ease,color .15s ease,border-color .15s ease;
+}
+.ttab:hover{border-color:var(--emerald-600);color:var(--emerald-800)}
+.ttab.is-active{background:var(--emerald-800,#065f46);border-color:var(--emerald-800,#065f46);color:#fff}
+.ttab-letter{
+  width:22px;height:22px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+  font-size:.7rem;font-weight:800;background:var(--surface-muted,#f1f5f1);color:var(--emerald-800);
+}
+.ttab.is-active .ttab-letter{background:rgba(255,255,255,.2);color:#fff}
+.ttab .nav-badge{background:var(--danger,#dc2626)}
+.ttab.is-active .nav-badge{background:var(--gold,#c9a24b);color:#fff}
+h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 130px)}
 .teach-search-row{display:flex;align-items:center;gap:10px;margin-top:12px}
 .teach-search-row .form-input{max-width:340px}
+/* Modern review cards */
+.tcard{
+  background:var(--surface,#fff);border:1px solid var(--border);border-radius:18px;
+  padding:18px;box-shadow:var(--shadow-sm,0 2px 8px rgba(15,23,42,.06));
+  transition:box-shadow .18s ease,transform .18s ease;
+}
+.tcard:hover{box-shadow:var(--shadow-md,0 12px 32px rgba(15,23,42,.10))}
+.tcard + .tcard{margin-top:14px}
+.tcard-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.tavatar{
+  width:46px;height:46px;flex:none;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:1.15rem;color:#fff;
+  background:linear-gradient(135deg,var(--emerald-700),var(--emerald-500,#10b981));
+  box-shadow:0 4px 10px rgba(4,120,87,.25);
+}
+.tcard[data-sec="b"] .tavatar{background:linear-gradient(135deg,#b98a1e,var(--gold,#c9a24b))}
+.tcard[data-sec="c"] .tavatar{background:linear-gradient(135deg,#1d4ed8,#60a5fa)}
+.tcard[data-sec="d"] .tavatar,.tcard[data-sec="f"] .tavatar{background:linear-gradient(135deg,#6d28d9,#a78bfa)}
+.tcard[data-sec="e"] .tavatar,.tcard[data-sec="g"] .tavatar{background:linear-gradient(135deg,#b45309,#f59e0b)}
+.tmeta{min-width:0;flex:1}
+.tmeta h3{margin:0;font-size:1rem;line-height:1.3;overflow-wrap:anywhere}
+.tmeta span{display:block;font-size:.78rem;color:var(--text-muted);overflow-wrap:anywhere}
+.tchips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.tcard .tmeta-row{margin:6px 0 10px}
+.tcard audio{width:100%;margin:8px 0}
+.tupload{margin-top:10px;border:1px dashed var(--border);border-radius:12px;padding:4px 12px 12px;background:var(--surface-muted,#f8faf8)}
+.tupload summary{cursor:pointer;font-size:.84rem;font-weight:600;color:var(--emerald-800);padding:8px 0}
 .rec-ind{display:none;align-items:center;gap:8px;font-size:.82rem;font-weight:700;color:#b91c1c}
 .rec-ind.on{display:inline-flex}
 .rec-dot{width:10px;height:10px;border-radius:50%;background:#dc2626;animation:recPulse 1.1s ease-in-out infinite}
@@ -203,39 +263,59 @@ h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 120px)}
 .teach-status{font-size:.82rem;color:var(--text-muted);margin:8px 0 0}
 .teach-status.err{color:#b91c1c}
 .teach-status.ok{color:#047857}
+.teach-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px}
 @media (max-width:640px){
   .teach-search-row .form-input{max-width:none;flex:1}
+  .tstats{grid-template-columns:repeat(2,1fr)}
+  .tcard{padding:14px;border-radius:14px}
+  .tavatar{width:40px;height:40px;font-size:1rem}
+  .tmeta h3{font-size:.92rem}
+  .ttabs{top:calc(var(--topbar-h,64px) + 4px);padding:8px}
 }
 </style>
 </head>
 <?php ui_page_start('admin', 'teaching', 'Teaching', 'Dashboard'); ?>
 
-<div class="page-hero animate-rise">
+<?php
+$sections = [
+    'a' => ['letter' => 'A', 'label' => 'Submissions', 'full' => 'Student Submissions', 'icon' => 'mic', 'count' => $cnt_a],
+    'b' => ['letter' => 'B', 'label' => 'Lessons', 'full' => 'Lesson Requests', 'icon' => 'upload', 'count' => $cnt_b],
+    'c' => ['letter' => 'C', 'label' => 'Live', 'full' => 'Live Requests', 'icon' => 'video', 'count' => $cnt_c],
+    'd' => ['letter' => 'D', 'label' => 'Hafiz Pages', 'full' => 'Hafiz Revision', 'icon' => 'book', 'count' => $cnt_d],
+    'e' => ['letter' => 'E', 'label' => 'Hafiz Tests', 'full' => 'Hafiz Weekly Tests', 'icon' => 'gavel', 'count' => $cnt_e],
+    'f' => ['letter' => 'F', 'label' => "Muraja'ah", 'full' => "Muraja'ah Sessions", 'icon' => 'book-open', 'count' => $cnt_f],
+    'g' => ['letter' => 'G', 'label' => 'Assistance', 'full' => 'Assistance Requests', 'icon' => 'chat', 'count' => $cnt_g],
+];
+$cnt_total = $cnt_a + $cnt_b + $cnt_c + $cnt_d + $cnt_e + $cnt_f + $cnt_g;
+// Default to the first section that actually has work waiting.
+$active_tab = 'a';
+foreach ($sections as $k => $s) {
+    if ($s['count'] > 0) { $active_tab = $k; break; }
+}
+?>
+<div class="page-hero teach-hero animate-rise">
     <h1>Teaching Dashboard</h1>
-    <p>Review recitations, prepare lessons and manage live sessions.</p>
-    <?php
-    $jumps = [];
-    if ($cnt_a > 0) $jumps[] = ['#sec-a', 'A · Student Submissions', $cnt_a];
-    if ($cnt_b > 0) $jumps[] = ['#sec-b', 'B · Lesson Requests', $cnt_b];
-    if ($cnt_c > 0) $jumps[] = ['#sec-c', 'C · Live Requests', $cnt_c];
-    if ($cnt_d > 0) $jumps[] = ['#sec-d', 'D · Hafiz Revision', $cnt_d];
-    if ($cnt_e > 0) $jumps[] = ['#sec-e', 'E · Hafiz Tests', $cnt_e];
-    if ($cnt_f > 0) $jumps[] = ['#sec-f', "F · Muraja'ah", $cnt_f];
-    if ($cnt_g > 0) $jumps[] = ['#sec-g', 'G · Assistance', $cnt_g];
-    ?>
-    <?php if (!empty($jumps)): ?>
-    <div class="teach-jumps">
-        <?php foreach ($jumps as [$url, $label, $cnt]): ?>
-            <a href="<?= htmlspecialchars($url) ?>" class="btn btn-sm btn-outline-light" style="gap:6px;">
-                <?= htmlspecialchars($label) ?> <span class="nav-badge"><?= $cnt ?></span>
-            </a>
+    <p>Review recitations, prepare lessons and manage live sessions.<?= $cnt_total > 0 ? ' <strong>' . $cnt_total . '</strong> item' . ($cnt_total === 1 ? '' : 's') . ' waiting.' : ' All clear — nothing waiting.' ?></p>
+    <div class="tstats">
+        <?php foreach ($sections as $key => $s): ?>
+            <button type="button" class="tstat s-<?= $key ?><?= $s['count'] > 0 ? ' has' : ' is-zero' ?><?= $key === $active_tab ? ' is-active' : '' ?>" data-tab="<?= $key ?>" aria-label="Show <?= htmlspecialchars($s['full']) ?>">
+                <span class="tstat-ico"><?= ui_icon($s['icon'], 18) ?></span>
+                <span class="tstat-num"><?= $s['count'] ?></span>
+                <span class="tstat-label"><?= htmlspecialchars($s['label']) ?></span>
+            </button>
         <?php endforeach; ?>
     </div>
-    <?php endif; ?>
-    <?php $cnt_total = $cnt_a + $cnt_b + $cnt_c + $cnt_d + $cnt_e + $cnt_f + $cnt_g; ?>
+    <div class="ttabs" role="tablist" aria-label="Teaching sections">
+        <?php foreach ($sections as $key => $s): ?>
+            <button type="button" role="tab" class="ttab<?= $key === $active_tab ? ' is-active' : '' ?>" data-tab="<?= $key ?>">
+                <span class="ttab-letter"><?= $s['letter'] ?></span> <?= htmlspecialchars($s['label']) ?>
+                <?php if ($s['count'] > 0): ?><span class="nav-badge"><?= $s['count'] ?></span><?php endif; ?>
+            </button>
+        <?php endforeach; ?>
+    </div>
     <?php if ($cnt_total > 0): ?>
     <div class="teach-search-row">
-        <input id="teachSearch" class="form-input" type="search" placeholder="Filter by student name or email…" autocomplete="off" aria-label="Filter cards by student">
+        <input id="teachSearch" class="form-input" type="search" placeholder="Search this section by name or email…" autocomplete="off" aria-label="Search cards in the open section">
         <span id="teachSearchCount" class="small text-muted"></span>
     </div>
     <?php endif; ?>
@@ -276,11 +356,14 @@ h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 120px)}
 
 <?php if ($recitations && $recitations->num_rows > 0): ?>
     <?php $ri = 0; while ($r = $recitations->fetch_assoc()): $ri++; ?>
-        <div class="card animate-rise d1">
+        <div class="tcard animate-rise d1" data-sec="a">
 
-            <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
-                <h3 style="margin:0;"><?= htmlspecialchars($r['name']) ?></h3>
-                <span class="small text-muted"><?= htmlspecialchars($r['email']) ?></span>
+            <div class="tcard-head">
+                <span class="tavatar"><?= htmlspecialchars(ui_initial($r['name'] ?? '?')) ?></span>
+                <div class="tmeta">
+                    <h3><?= htmlspecialchars($r['name']) ?></h3>
+                    <span><?= htmlspecialchars($r['email']) ?></span>
+                </div>
             </div>
 
             <p class="small">
@@ -376,11 +459,14 @@ h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 120px)}
 
 <?php if ($new_requests && $new_requests->num_rows > 0): ?>
 <?php while ($row = $new_requests->fetch_assoc()): ?>
-<div class="card animate-rise d2">
+<div class="tcard animate-rise d2" data-sec="b">
 
-    <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
-        <h3 style="margin:0;"><?= htmlspecialchars($row['name']) ?></h3>
-        <span class="small text-muted"><?= htmlspecialchars($row['email']) ?></span>
+    <div class="tcard-head">
+        <span class="tavatar"><?= htmlspecialchars(ui_initial($row['name'] ?? '?')) ?></span>
+        <div class="tmeta">
+            <h3><?= htmlspecialchars($row['name']) ?></h3>
+            <span><?= htmlspecialchars($row['email']) ?></span>
+        </div>
     </div>
 
     <p class="small">
@@ -415,6 +501,19 @@ h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 120px)}
     <?= ui_icon('send', 16) ?> Send to Student
     </button>
 
+    <details class="tupload">
+        <summary>Or upload an audio file instead</summary>
+        <form method="post" enctype="multipart/form-data" action="submit_admin_audio.php">
+            <input type="hidden" name="student_id" value="<?= (int)$row['student_id'] ?>">
+            <input type="hidden" name="plan_id" value="<?= (int)$row['lesson_id'] ?>">
+            <?= csrf_field() ?>
+            <div class="form-group" style="margin:4px 0 10px;">
+                <input class="file-input" type="file" name="audio" accept="audio/*" required aria-label="Upload lesson audio file">
+            </div>
+            <button type="submit" class="btn btn-sm btn-gold"><?= ui_icon('send', 15) ?> Send Audio</button>
+        </form>
+    </details>
+
     <?php endif; ?>
 
     <div class="left-block">
@@ -446,11 +545,14 @@ h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 120px)}
 
 <?php if ($live_requests && $live_requests->num_rows > 0): ?>
 <?php while ($lr = $live_requests->fetch_assoc()): ?>
-<div class="card animate-rise d3">
+<div class="tcard animate-rise d3" data-sec="c">
 
-    <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
-        <h3 style="margin:0;"><?= htmlspecialchars($lr['student_name']) ?></h3>
-        <span class="small text-muted"><?= htmlspecialchars($lr['student_email']) ?></span>
+    <div class="tcard-head">
+        <span class="tavatar"><?= htmlspecialchars(ui_initial($lr['student_name'] ?? '?')) ?></span>
+        <div class="tmeta">
+            <h3><?= htmlspecialchars($lr['student_name']) ?></h3>
+            <span><?= htmlspecialchars($lr['student_email']) ?></span>
+        </div>
     </div>
 
     <p class="small" style="margin:0 0 12px;">
@@ -488,11 +590,14 @@ h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 120px)}
 
 <?php if (!empty($hafiz_groups)): ?>
 <?php foreach ($hafiz_groups as $g): ?>
-<div class="card animate-rise d4">
+<div class="tcard animate-rise d4" data-sec="d">
 
-    <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
-        <h3 style="margin:0;"><?= htmlspecialchars($g['student_name']) ?></h3>
-        <span class="small text-muted"><?= htmlspecialchars($g['student_email']) ?></span>
+    <div class="tcard-head">
+        <span class="tavatar"><?= htmlspecialchars(ui_initial($g['student_name'] ?? '?')) ?></span>
+        <div class="tmeta">
+            <h3><?= htmlspecialchars($g['student_name']) ?></h3>
+            <span><?= htmlspecialchars($g['student_email']) ?></span>
+        </div>
     </div>
 
     <p class="small" style="margin:0 0 12px;">
@@ -576,11 +681,14 @@ h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 120px)}
 
 <?php if ($hafiz_tests && $hafiz_tests->num_rows > 0): ?>
 <?php while ($ht = $hafiz_tests->fetch_assoc()): ?>
-<div class="card animate-rise d5">
+<div class="tcard animate-rise d5" data-sec="e">
 
-    <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
-        <h3 style="margin:0;"><?= htmlspecialchars($ht['student_name']) ?></h3>
-        <span class="small text-muted"><?= htmlspecialchars($ht['student_email']) ?></span>
+    <div class="tcard-head">
+        <span class="tavatar"><?= htmlspecialchars(ui_initial($ht['student_name'] ?? '?')) ?></span>
+        <div class="tmeta">
+            <h3><?= htmlspecialchars($ht['student_name']) ?></h3>
+            <span><?= htmlspecialchars($ht['student_email']) ?></span>
+        </div>
     </div>
 
     <p class="small">
@@ -622,11 +730,14 @@ h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 120px)}
 
 <?php if (!empty($mem_queue)): ?>
 <?php foreach ($mem_queue as $mq): ?>
-<div class="card animate-rise d5">
+<div class="tcard animate-rise d5" data-sec="f">
 
-    <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
-        <h3 style="margin:0;"><?= htmlspecialchars($mq['name'] ?? 'Student') ?></h3>
-        <span class="small text-muted"><?= htmlspecialchars($mq['student_email'] ?? $mq['email'] ?? '') ?></span>
+    <div class="tcard-head">
+        <span class="tavatar"><?= htmlspecialchars(ui_initial($mq['name'] ?? '?')) ?></span>
+        <div class="tmeta">
+            <h3><?= htmlspecialchars($mq['name'] ?? 'Student') ?></h3>
+            <span><?= htmlspecialchars($mq['student_email'] ?? $mq['email'] ?? '') ?></span>
+        </div>
     </div>
 
     <p class="small">
@@ -686,10 +797,13 @@ h2[id^="sec-"]{scroll-margin-top:calc(var(--topbar-h,64px) + 120px)}
 
 <?php if (!empty($assistance_requests)): ?>
 <?php foreach ($assistance_requests as $ar): ?>
-<div class="card animate-rise d6">
-    <div class="card-title" style="display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px;">
-        <h3 style="margin:0;"><?= htmlspecialchars($ar['name'] ?? 'Student') ?></h3>
-        <span class="small text-muted"><?= htmlspecialchars($ar['email'] ?? '') ?></span>
+<div class="tcard animate-rise d6" data-sec="g">
+    <div class="tcard-head">
+        <span class="tavatar"><?= htmlspecialchars(ui_initial($ar['name'] ?? '?')) ?></span>
+        <div class="tmeta">
+            <h3><?= htmlspecialchars($ar['name'] ?? 'Student') ?></h3>
+            <span><?= htmlspecialchars($ar['email'] ?? '') ?></span>
+        </div>
     </div>
 
     <p class="small" style="margin:8px 0 10px;">
@@ -794,7 +908,10 @@ function startRecording(id) {
     return;
   }
   if (activeRecId === id) return; // already recording
-  if (!window.Recorder || !Recorder.supported()) { alert('Recording is not supported here. You can upload an audio file instead (iPhone rows).'); return; }
+  if (!window.Recorder || !Recorder.supported()) {
+    recMsg(id, 'Recording is not available here (browser or insecure connection). Use “Or upload an audio file instead” below.', 'err');
+    return;
+  }
 
   const picked = Recorder.pick();
   // Fresh take: hide any previous playback until the new take is ready.
@@ -840,7 +957,9 @@ function startRecording(id) {
         recMsg(id, 'Stopped automatically after 5 minutes. Review it above, then Send.', 'ok');
       }
     }, REC_MAX_MS);
-  }).catch(() => alert('Mic access denied. You can upload an audio file instead.'));
+  }).catch(() => {
+    recMsg(id, 'Mic access was denied. Allow microphone permission, or use “Or upload an audio file instead” below.', 'err');
+  });
 }
 
 function stopRecording(id) {
@@ -930,34 +1049,84 @@ function handleLiveRequest(id, action, btn) {
   });
 }
 
-/* ---------- Hero: filter all section cards by student name/email ---------- */
-(function () {
-  const input = document.getElementById('teachSearch');
-  if (!input) return;
-  const count = document.getElementById('teachSearchCount');
+/* ---------- Dashboard tabs + scoped search ---------- */
+const teachGroups = {}; // a..g -> { head, els }
+(function buildGroups() {
   const heads = Array.from(document.querySelectorAll('h2[id^="sec-"]'));
-  input.addEventListener('input', () => {
-    const q = input.value.trim().toLowerCase();
-    let shown = 0, cards = 0;
-    heads.forEach(h => {
-      const next = heads[heads.indexOf(h) + 1] || null;
-      let el = h.nextElementSibling, vis = 0, tot = 0;
-      while (el && el !== next) {
-        if (el.classList && el.classList.contains('card')) {
-          tot++;
-          const hit = !q || el.textContent.toLowerCase().includes(q);
-          el.style.display = hit ? '' : 'none';
-          if (hit) vis++;
-        } else if (el.classList && el.classList.contains('empty')) {
-          el.style.display = q ? 'none' : ''; // empty states are noise while searching
-        }
-        el = el.nextElementSibling;
-      }
-      h.style.display = (q && vis === 0) ? 'none' : '';
-      shown += vis; cards += tot;
-    });
-    if (count) count.textContent = q ? ('Showing ' + shown + ' of ' + cards) : '';
+  heads.forEach(h => {
+    const m = (h.id || '').match(/^sec-([a-g])$/);
+    if (!m) return;
+    const next = heads[heads.indexOf(h) + 1] || null;
+    const els = [];
+    let el = h.nextElementSibling;
+    while (el && el !== next) { els.push(el); el = el.nextElementSibling; }
+    teachGroups[m[1]] = { head: h, els: els };
   });
+})();
+
+let activeTab = 'a';
+
+function applySearch() {
+  const input = document.getElementById('teachSearch');
+  const count = document.getElementById('teachSearchCount');
+  const q = input ? input.value.trim().toLowerCase() : '';
+  const g = teachGroups[activeTab];
+  if (!g) return;
+  let shown = 0, cards = 0;
+  g.els.forEach(el => {
+    if (!el.classList) return;
+    if (el.classList.contains('tcard') || el.classList.contains('card')) {
+      cards++;
+      const hit = !q || (el.textContent || '').toLowerCase().includes(q);
+      el.style.display = hit ? '' : 'none';
+      if (hit) shown++;
+    } else if (el.classList.contains('empty')) {
+      el.style.display = q ? 'none' : '';
+    }
+  });
+  if (count) count.textContent = q ? (shown > 0 ? ('Showing ' + shown + ' of ' + cards) : 'No matches in this section.') : '';
+}
+
+function showTab(key) {
+  if (!teachGroups[key]) return;
+  activeTab = key;
+  document.querySelectorAll('[data-tab]').forEach(b => {
+    b.classList.toggle('is-active', b.getAttribute('data-tab') === key);
+  });
+  Object.keys(teachGroups).forEach(k => {
+    const g = teachGroups[k], on = (k === key);
+    g.head.style.display = on ? '' : 'none';
+    g.els.forEach(el => {
+      if (!el.classList) return;
+      if (el.classList.contains('tcard') || el.classList.contains('card') || el.classList.contains('empty')) {
+        el.style.display = on ? '' : 'none';
+      }
+    });
+  });
+  applySearch();
+  try { history.replaceState(null, '', '#tab-' + key); } catch (e) { /* ignore */ }
+}
+
+document.querySelectorAll('[data-tab]').forEach(b => {
+  b.addEventListener('click', () => {
+    const s = document.getElementById('teachSearch');
+    if (s) s.value = '';
+    showTab(b.getAttribute('data-tab'));
+  });
+});
+
+(function initTab() {
+  let key = null;
+  try {
+    const h = window.location.hash || '';
+    let m = h.match(/^#tab-([a-g])$/);
+    if (m) key = m[1];
+    else { m = h.match(/^#sec-([a-g])$/); if (m) key = m[1]; }
+  } catch (e) { /* ignore */ }
+  const initial = document.querySelector('.ttab.is-active');
+  showTab(key || (initial ? initial.getAttribute('data-tab') : 'a'));
+  const input = document.getElementById('teachSearch');
+  if (input) input.addEventListener('input', applySearch);
 })();
 </script>
 
